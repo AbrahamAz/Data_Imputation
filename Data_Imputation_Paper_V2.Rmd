@@ -1,0 +1,338 @@
+---
+title: "Data Imputation using ISMI data"
+output: html_document
+runtime: shiny
+---
+## {.tabset}
+### Introduction & Context
+<b><h4>Introduction:</h4></b>
+In this paper, we will be discussing multiple *data imputation* strategies. All the codes, outputs and methodologies are taken from a study done by a previous colleague, <b>Josh McCormick</b>. 
+<br>
+This study started after we noticed some missing information in the <b>ISMI</b> (IDPs Situation Monitoring Initiative) research cycle. Especially, information on IDP arrivals number from <b>known</b> sub-districts. 
+<br>
+
+<b><h4>A bit of context:</h4></b>
+Over the last 5 months, slightly more than 90% of KIs know where new IDP arrivals recently came from (their place of origin). For returnees, the numbers vary more widely, with sometimes close to 80% and sometimes as low as 30% known last place of departure. This pattern has been similar since the beginning of the project. <br><br>
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+rm(list = ls())
+library(ggplot2)
+library(tidyverse)
+library(shiny)
+data <- readxl::read_xlsx("unknown_LPD.xlsx") %>% 
+  mutate(Percentage = round(Percentage, 3))
+ggplot(data, aes(x=Month, y=Percentage, group=Group, label=Percentage))+
+  geom_line()+
+  geom_point()+
+  geom_text(nudge_y = 2)
+```
+
+### Reason & Methodology
+<b><h4>Reason:</h4></b>
+
+The main reason we are doing this study is to fill the gap of unknown locations because this data is sent directly to CCCM, who use it for their monthly displacement tracking updates. However, they do not use the total number of IDP arrivals, they only look at the total IDP arrivals <b>from known sub-district only</b>. This might cause some people to assume the total number of arrivals is lower than is actually is, generating a false picture of displacement in the area of studies. <br>
+
+The goal of this study is to try different algorithms of replacing the missing data and comparing them, and hopefully be able to implement the best methodology in other places/assessments when needed.
+
+<b><h4>Methodologies used:</h4></b>
+
+Two strategies were used to study data imputations in this context, the Hot deck and the kNN imputations. <br>
+
+<b><h5>Hot deck:</h5></b>
+
+Hot deck imputation is a method for handling missing data in which each missing value is replaced with an observed response from a “similar” unit.
+Hot deck imputation involves replacing missing values of one or more variables for a non-respondent (called the recipient) with observed values from a respondent (the donor) that is similar to the non-respondent with respect to characteristics observed by both cases.
+This theory is not as well developed as that of other imputation methods.<br>
+
+References:<br>
+[Hot Deck Methodology](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3130338/)
+
+<b><h5>kNN or k-Nearest Neighbours:</h5></b>
+
+kNN identifies the neighboring points through a measure of distance and the missing values can be estimated using completed values of neighbouring observations.
+In another word, it identify 'k' samples in the dataset that are similar or close in space, and this sample is used to estimate values of the missing data points using the mean value of the 'k'-neighbours dound in the dataset.<br>
+
+References:<br>
+[kNN Methodology](https://www.analyticsvidhya.com/blog/2020/07/knnimputer-a-robust-way-to-impute-missing-values-using-scikit-learn/#:~:text=The%20idea%20in%20kNN%20methods,neighbors%20found%20in%20the%20dataset.)<br><br>
+
+We also did used two methodologies to insert NAs in our ISMI dataset: <br>
+<ul><li> Randomized selection of NA values depending on the percentage of missing data from previous rounds</li>
+<li> Forced selection of NA values on .....</li></ul>
+
+Multiple simulations were run using different parameters and variables. The result is comparing the accuracy each simulation by calculating the margin of error (%) before and after data imputation. <br>
+<b>For Data Unit:</b> VIM package from R was used for both Hot Deck and kNN simulations.
+
+### Simulations
+
+As mentioned in the methodologies section, we used two different strategies to get to the best results. For each strategie, we ran different simulation and tweaked parameters to try compare different outcomes. Here is the results:<br>
+
+<b><h4>Some hints to understand reading labels:</h4></b>
+
+As there will be different simulations, using different methodologies, parameters, # of simulation, etc. I will be using a code for each simulation with different sections as following:<br>
+<h5>*STRAT_LVLIMP_ORD_DOM* --> for hot deck strategy</h5>
+*STRAT* = Strategy used<br>
+*LVLIMP* = Level of imputation<br>
+*ORD* = Dataset ordered by a specific variable<br>
+*DOM* = Domain of imputation<br>
+<h5>*STRAT_LVLIMP_DIS_NN_METH_NOISE* --> for kNN strategy</h5>
+*STRAT* = Strategy used<br>
+*LVLIMP* = Level of imputation<br>
+*NN* = Number of nearest neighbours<br>
+*DIS* = Distance variable <br>
+*METH* = Methodology of sampling of NNs<br>
+*NOISE* = With or Without added random noises for ties<br>
+
+<br>
+<b><h4>Simulations on community level of imputation:</h4></b>
+
+4 approaches, result is the mean of 200 simulation for each approach.
+
+
+```{r echo=FALSE, warning=FALSE}
+library(readxl)
+plot1 <- read_excel("src/plot1.xlsx")
+ggplot(plot1, aes(x=Approach, y=Margin_Error, label = Margin_Error), width= 50)+
+  geom_col(fill = "#ee5859", width = 0.2,position = position_dodge(width=0.1), aes(ylab = Margin_Error)) +
+  theme(axis.text.x = element_text(vjust = 0.5,angle = 25)) +
+  geom_text(nudge_y = 0.005)
+```
+<br>
+Looking at all approaches above, we can conclude that when we try data imputation on community level, with same number of simulations for all, the <b>hot deck imputation "to" districts as domains</b>, and <b> the kNN approach</b> were the best out of 4. The Hot Deck imputation with only one full domain was slighlty worse. However, when we tried to order our data by number of HH arrivals, this led to the far worse prediction. 
+
+<br>
+<b><h4>Simulations on Household level of imputation:</h4></b>
+<b>1. </b><br>
+3 approaches, results to test what best number of NNs for KNN strategy is best (50, 100, or 200)
+```{r echo=FALSE, warning=FALSE}
+plot2 <- read_excel("src/plot2.xlsx")
+ggplot(plot2, aes(x=Approach, y=Margin_Error, label = Margin_Error), width= 50)+
+  geom_col(fill = "#ee5859", width = 0.2,position = position_dodge(width=0.1), aes(ylab = Margin_Error)) +
+  theme(axis.text.x = element_text(vjust = 0.5,angle = 25)) +
+  geom_text(nudge_y = 0.005)
+```
+
+<br>
+It seems that between the 3 approaches, 200 nearest neighbours was the most adequate. So, next simulation will be running on 200 as Number of NNs and other tweaking of few other variables. 
+<br>
+
+<b>2. </b><br>
+
+3 approaches, all kNN strategy, 200 NNs but different parameters
+
+```{r echo=FALSE, warning=FALSE}
+plot3 <- read_excel("src/plot3.xlsx")
+ggplot(plot3, aes(x=Approach, y=Margin_Error, label = Margin_Error), width= 50)+
+  geom_col(fill = "#ee5859", width = 0.2,position = position_dodge(width=0.1), aes(ylab = Margin_Error)) +
+  theme(axis.text.x = element_text(vjust = 0.5,angle = 25)) +
+  geom_text(nudge_y = 0.005)
+```
+<br>
+After running these 3 simulation, we can conclude the following points:<br>
+<ul>
+<li>1st simulation, we added HH of arrival also to the distance variables (lat and lon). This change decreased slightly the accuracy of predictions</li>
+<li>2nd simulation, we set up the aggregation of the NNs to max category instead of a proportional sampling. The result gave a significant worse result.</li>
+<li>3rd simulation, we removed the random noise generated which broke some ties and the result is also slightly worse.</li>
+</ul>
+<br>
+
+<b>3. </b><br>
+
+3 approaches, all Hot Deck strategy with different order and domain parameters. 
+
+```{r echo=FALSE, warning=FALSE}
+plot4 <- read_excel("src/plot4.xlsx")
+ggplot(plot4, aes(x=Approach, y=Margin_Error, label = Margin_Error), width= 50)+
+  geom_col(fill = "#ee5859", width = 0.2,position = position_dodge(width=0.1), aes(ylab = Margin_Error)) +
+  theme(axis.text.x = element_text(vjust = 0.5,angle = 25)) +
+  geom_text(nudge_y = 0.005)
+```
+<br>
+Comparing this graph, with the first generated one, we can conclude that the same pattern was drawn. All results was similar to the same results run with the Hot Deck strategy using community level of imputation but with slight better results. <br>
+
+### Extra
+
+<h4>Map showing communities reporting NA for sub-district of departure in December 2020</h4>
+
+We also checked the geographical distribution of communities reporting *unknown* as Sub-district of departure. It is clear from the below map that the distribution is quiet random. <br>
+
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+library(leaflet)
+library(sf)
+gps_na <- readxl::read_excel("Consolidated_Datasets.xlsx")
+
+gps_na <- gps_na %>% 
+  select(-c(`End of data coverage period`)) %>% 
+  mutate(`Start of data coverage peirod` = case_when(
+    `Start of data coverage peirod` %in% c("2020-12-01","2020-12-16") ~ "December 2020",
+    `Start of data coverage peirod` %in% c("2020-11-01","2020-11-16") ~ "November 2020",
+    `Start of data coverage peirod` %in% c("2020-10-01","2020-10-16") ~ "October 2020",
+    `Start of data coverage peirod` %in% c("2020-09-01","2020-09-16") ~ "September 2020",
+    `Start of data coverage peirod` %in% c("2021-01-01","2021-01-16") ~ "January 2021",
+    `Start of data coverage peirod` %in% c("2021-02-01","2021-02-16") ~ "February 2021",
+    `Start of data coverage peirod` %in% c("2021-03-01","2021-03-15","2021-03-16") ~ "March 2021",
+    `Start of data coverage peirod` %in% c("2021-04-01","2021-04-16") ~ "April 2021",
+    `Start of data coverage peirod` %in% c("2021-05-01","2021-05-16") ~ "May 2021",
+    `Start of data coverage peirod` %in% c("2021-06-01","2021-06-15","2021-06-16") ~ "June 2021",
+    `Start of data coverage peirod` %in% c("2021-07-01","2021-07-15","2021-07-16") ~ "July 2021",
+    `Start of data coverage peirod` %in% c("2021-08-01","2021-08-15","2021-08-16","2021-08-19") ~ "August 2021",
+    `Start of data coverage peirod` %in% c("2021-09-01","2021-09-15","2021-09-16") ~ "September 2021",
+    `Start of data coverage peirod` %in% c("2021-10-01","2021-10-15","2021-10-16") ~ "October 2021",
+    `Start of data coverage peirod` %in% c("2021-11-01","2021-11-15","2021-11-16") ~ "November 2021",
+    `Start of data coverage peirod` %in% c("2021-12-01","2021-12-16") ~ "December 2021",
+    `Start of data coverage peirod` == "2022-01-01" ~ "January 2022"
+  ))
+gps_na <- gps_na %>% 
+  filter(!str_detect(`Closest p-code`,"CP") & !str_starts(`Closest p-code`,"RE"))
+
+gps_na_dec2020 <- gps_na %>% 
+  filter(`Number of IDP HH arrivals` != 0 & `Start of data coverage peirod` == "December 2020")
+
+from_To <- gps_na_dec2020 %>% 
+  select(`Closest p-code`,`Number of IDP HH arrivals`, `Subdistrict of last departure 1`, `Number of IDP HHs arrived from subdistrict 1`,
+         `Subdistrict of last departure 2`, `Number of IDP HHs arrived from subdistrict 2`,
+         `Subdistrict of last departure 3`, `Number of IDP HHs arrived from subdistrict 3`) %>% 
+  rename("To_Com" = `Closest p-code`,
+         "From_Sub"=`Subdistrict of last departure 1`)
+
+from_To.cleaned <- from_To %>% 
+  mutate(`Number of IDP HHs arrived from subdistrict 1` = ifelse(`Number of IDP HHs arrived from subdistrict 1` == "Not sure", NA,`Number of IDP HHs arrived from subdistrict 1`),
+         `Number of IDP HHs arrived from subdistrict 2` = ifelse(`Number of IDP HHs arrived from subdistrict 2` == "Not sure", NA,`Number of IDP HHs arrived from subdistrict 2`),
+         `Number of IDP HHs arrived from subdistrict 3` = ifelse(`Number of IDP HHs arrived from subdistrict 3` == "Not sure", NA,`Number of IDP HHs arrived from subdistrict 3`))
+from_To.cleaned$`Number of IDP HHs arrived from subdistrict 1` <- as.numeric(from_To.cleaned$`Number of IDP HHs arrived from subdistrict 1`)
+from_To.cleaned$`Number of IDP HHs arrived from subdistrict 2` <- as.numeric(from_To.cleaned$`Number of IDP HHs arrived from subdistrict 2`)
+from_To.cleaned$`Number of IDP HHs arrived from subdistrict 3` <- as.numeric(from_To.cleaned$`Number of IDP HHs arrived from subdistrict 3`)
+
+from_To.cleaned <- from_To.cleaned %>% 
+  mutate(clean = ifelse(is.na(`Number of IDP HHs arrived from subdistrict 1`) & is.na(`Number of IDP HHs arrived from subdistrict 3`) & is.na(`Number of IDP HHs arrived from subdistrict 2`),T,
+                        ifelse(is.na(`Number of IDP HHs arrived from subdistrict 3`) & is.na(`Number of IDP HHs arrived from subdistrict 2`) &
+                          `Number of IDP HH arrivals` != `Number of IDP HHs arrived from subdistrict 1`,T,
+                        ifelse(is.na(`Number of IDP HHs arrived from subdistrict 3`) & sum(`Number of IDP HHs arrived from subdistrict 1`,`Number of IDP HHs arrived from subdistrict 2`) != `Number of IDP HH arrivals`,T,F)))) %>% 
+  filter(!is.na(clean))
+
+from_To.cleaned <- from_To.cleaned %>% 
+  filter(clean == T)
+
+from_To.cleaned <- from_To.cleaned %>% 
+  gather(col, value, From_Sub:`Number of IDP HHs arrived from subdistrict 3`) %>% 
+  mutate(col = ifelse(col == "Subdistrict of last departure 2", "From_Sub",
+                      ifelse(col == "Subdistrict of last departure 3","From_Sub",
+                             ifelse(col=="Number of IDP HHs arrived from subdistrict 1", "HH_arrival",
+                                    ifelse(col=="Number of IDP HHs arrived from subdistrict 2", "HH_arrival",
+                                           ifelse(col=="Number of IDP HHs arrived from subdistrict 3", "HH_arrival",col)))))) %>% 
+  pivot_wider(names_from = col,
+              values_from = value) %>%  unnest() %>% 
+  select(From_Sub, To_Com, HH_arrival) 
+from_To.cleaned <- from_To.cleaned %>% 
+  filter(From_Sub == "Not sure") %>% 
+  group_by(To_Com) %>% 
+  summarise(Sub_NA = n())
+
+locations <- read.csv("ocha_locations.csv")
+
+locations <- locations %>%
+  rename(lat=Latitude_y, long=Longitude_x, community_pcode=admin4Pcod) %>% 
+  select(lat, long, community_pcode) %>%
+  rename(To_Com = community_pcode) %>%
+  distinct(To_Com, .keep_all = TRUE)
+
+from_To.cleaned <- left_join(from_To.cleaned, locations, by="To_Com")
+from_To.cleaned.sf <- st_as_sf(x = from_To.cleaned, coords = c("long", "lat"), crs = 4326)
+
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+leaflet() %>% 
+  addCircles(data = from_To.cleaned.sf, stroke = F, fill= T, color = "#ee5859", fillOpacity = 0.75,
+             radius = 1000) %>% 
+  addProviderTiles("OpenStreetMap.Mapnik") %>% 
+  addMeasure(primaryLengthUnit = "meters")
+```
+<h4>Trend of communities choosing NAs as Sub-district of Departure by month</h4>
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+inputPanel(
+  selectInput("date", label = "Select Month", choices = unique(gps_na$`Start of data coverage peirod`), selected = "September 2021")
+)
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+filteredData <- reactive({
+  req(input$date)
+  gps_na[gps_na$`Start of data coverage peirod` == input$date,]
+})
+
+observe({
+  from_To <- filteredData() %>% 
+  select(`Closest p-code`,`Number of IDP HH arrivals`, `Subdistrict of last departure 1`, `Number of IDP HHs arrived from subdistrict 1`,
+         `Subdistrict of last departure 2`, `Number of IDP HHs arrived from subdistrict 2`,
+         `Subdistrict of last departure 3`, `Number of IDP HHs arrived from subdistrict 3`) %>% 
+  rename("To_Com" = `Closest p-code`,
+         "From_Sub"=`Subdistrict of last departure 1`)
+if(nrow(from_To) > 0){
+   from_To.cleaned <- from_To %>% 
+    mutate(`Number of IDP HHs arrived from subdistrict 1` = ifelse(`Number of IDP HHs arrived from subdistrict 1` == "Not sure", NA,`Number of IDP HHs arrived from subdistrict 1`),
+         `Number of IDP HHs arrived from subdistrict 2` = ifelse(`Number of IDP HHs arrived from subdistrict 2` == "Not sure", NA,`Number of IDP HHs arrived from subdistrict 2`),
+         `Number of IDP HHs arrived from subdistrict 3` = ifelse(`Number of IDP HHs arrived from subdistrict 3` == "Not sure", NA,`Number of IDP HHs arrived from subdistrict 3`))
+  from_To.cleaned$`Number of IDP HHs arrived from subdistrict 1` <- as.numeric(from_To.cleaned$`Number of IDP HHs arrived from subdistrict 1`)
+  from_To.cleaned$`Number of IDP HHs arrived from subdistrict 2` <- as.numeric(from_To.cleaned$`Number of IDP HHs arrived from subdistrict 2`)
+  from_To.cleaned$`Number of IDP HHs arrived from subdistrict 3` <- as.numeric(from_To.cleaned$`Number of IDP HHs arrived from subdistrict 3`)
+
+  from_To.cleaned <- from_To.cleaned %>% 
+    mutate(clean = ifelse(is.na(`Number of IDP HHs arrived from subdistrict 1`) & is.na(`Number of IDP HHs arrived from subdistrict 3`) & is.na(`Number of IDP HHs arrived from subdistrict 2`),T,
+                          ifelse(is.na(`Number of IDP HHs arrived from subdistrict 3`) & is.na(`Number of IDP HHs arrived from subdistrict 2`) &
+                            `Number of IDP HH arrivals` != `Number of IDP HHs arrived from subdistrict 1`,T,
+                          ifelse(is.na(`Number of IDP HHs arrived from subdistrict 3`) & sum(`Number of IDP HHs arrived from subdistrict 1`,`Number of IDP HHs arrived from subdistrict 2`) != `Number of IDP HH arrivals`,T,F)))) %>% 
+    filter(!is.na(clean))
+
+  from_To.cleaned <- from_To.cleaned %>% 
+    filter(clean == T)
+
+  from_To.cleaned <- from_To.cleaned %>% 
+    gather(col, value, From_Sub:`Number of IDP HHs arrived from subdistrict 3`) %>% 
+    mutate(col = ifelse(col == "Subdistrict of last departure 2", "From_Sub",
+                        ifelse(col == "Subdistrict of last departure 3","From_Sub",
+                               ifelse(col=="Number of IDP HHs arrived from subdistrict 1", "HH_arrival",
+                                      ifelse(col=="Number of IDP HHs arrived from subdistrict 2", "HH_arrival",
+                                             ifelse(col=="Number of IDP HHs arrived from subdistrict 3", "HH_arrival",col)))))) %>% 
+    pivot_wider(names_from = col,
+                values_from = value) %>%  unnest() %>% 
+    select(From_Sub, To_Com, HH_arrival) 
+  from_To.cleaned <- from_To.cleaned %>% 
+    filter(From_Sub == "Not sure") %>% 
+    group_by(To_Com) %>% 
+    summarise(Sub_NA = n())
+  from_To.cleaned <- left_join(from_To.cleaned, locations, by="To_Com")
+  from_To.cleaned.sf <- st_as_sf(x = from_To.cleaned, coords = c("long", "lat"), crs = 4326)
+  
+  output$map <- renderLeaflet({
+   leaflet(options = leafletOptions(zoomControl = FALSE)) %>% 
+  addCircles(data = from_To.cleaned.sf, stroke = F, fill= T, color = "#ee5859", fillOpacity = 0.75,
+             radius = 1000) %>% 
+  addProviderTiles("OpenStreetMap.Mapnik") %>% 
+  addMeasure(primaryLengthUnit = "meters")
+  }) 
+}
+ 
+})
+leafletOutput("map", width = "100%",height = "700px")
+```
+
+
+
+
+### Conclusion
+
+<b><h4>Conclusion:</h4></b>
+<ul>
+<li>Imputing on HH level output better results that imputing on community level</li>
+<li>kNN produces better results than the Hot Deck imputation strategy but only nominally; Taking 200 NNs was better then 100 or 50 NNs, but this added a lot of burden on the computation.</li>
+<li>Adding variables to the distance variables for kNN or changing the order of variables for Hot Deck was not better</li>
+<li>Adding random noise helped adding ties between neighbors</li>
+</ul>
+On the whole, most of the different approaches yielded more or less similar results.<br>
+<b>Worst simulation</b> was the Hot Deck, community level, ordered by number of HH arrivals and using the domain of the district of arrival. <br>
+<b>Best simulation</b> was the kNN, HH level, 200 NNs sampled proportionately with random noise added. 
+
+
+

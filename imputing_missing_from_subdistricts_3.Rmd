@@ -1,0 +1,669 @@
+---
+title: "Imputing Missing From Subdisricts"
+author: "Josh McCormick"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+We start by reading in a csv that includes all arrivals from known subdistricts in December. I think Sarah excludes arrivals from unknown subdistricts so you'd need to tweak the script that generates this csv so that those would be included with NA's for the "from subdistrict."
+
+I'm using this data to compare a couple of different imputation strategies. Of course, the actual missing data is probably not missing completely at random but I think these sorts of simulations are probably as good as we're going to get.
+
+```{r}
+library(tidyverse)
+library(VIM)
+library(DT)
+library(writexl)
+
+#To silence the obnoxious group_by warning
+
+options(dplyr.summarise.inform = FALSE)
+
+arrivals <- read.csv("REACH_December_2020.csv")
+
+locations <- read.csv("ocha_locations.csv")
+
+#Here I'm adding a column for ids.
+
+arrivals <- arrivals %>%
+  mutate(id = 1:nrow(arrivals)) 
+
+arrivals %>%
+    distinct(id) %>%
+    dim()
+  
+#Now adding in GPS points
+
+locations <- locations %>%
+  rename(lat=Latitude_y, long=Longitude_x, community_pcode=admin4Pcod) %>% 
+  select(lat, long, community_pcode) %>%
+  rename(T_Community_PCODE = community_pcode) %>%
+  
+#It's important to do this or the pcodes with n codes will be duplicated in the join below.
+  
+  distinct(T_Community_PCODE, .keep_all = TRUE)
+
+arrivals <- left_join(arrivals, locations, by = "T_Community_PCODE")
+
+arrivals %>%
+  distinct(id) %>%
+  dim()
+
+```
+
+### By Community
+
+There are a couple of different ways to run these imputations. I'm going to start by imputing at the community level meaning that all unknown arrivals to a certain community will be imputed together (i.e. will have the same "from" subdistrict.)
+
+I expect that imputating at the household level will be much better since imputating at the community level gives equal weight to all rows/communities regardless of how many people arrived in that row/community.
+
+The following function randomly selects a number of rows and replaces the "from" subdistrict for these rows with NA.
+
+```{r}
+
+create_comm_na <- function(n)  {
+  
+  na <- sample_n(arrivals, n) %>%
+    mutate(F_Sub.District_En = NA)
+  
+  not_na <-anti_join(arrivals, na, by = "id")
+  
+  with_na <- bind_rows(not_na, na)
+  
+}
+
+```
+
+In the November data, if I remember correctly, around 10 percent of entries were NA for "from" subdistrict. That would be around 116 rows for the December dataset so we'll use that for our simulations.
+
+```{r}
+
+set.seed(100)
+
+comm_na <- create_comm_na(116)
+```
+
+We'll work through one simulation with this dataset before running multiple simulations.
+
+We'll start with hotdeck impuation (utilizing the VIM package) and we'll treat the entire dataset as one domain.
+
+Hot deck imputation is a method for handling missing data in which each missing value is replaced with an observed response from a “similar” unit. (https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3130338/)
+
+This theory is not as well developed as that of other imputation methods.
+
+```{r}
+
+comm_na_hotdeck <- hotdeck(data = comm_na,
+                          variable = c("F_Sub.District_En"),
+                          ord_var = c(),
+                          domain_var = c())
+
+
+
+#Now combining the imputated data with the original data
+
+comm_na_hotdeck <- bind_rows(comm_na_hotdeck, arrivals) %>%
+  mutate(original = ifelse(is.na(F_Sub.District_En_imp), "yes", "no"))
+
+
+```
+
+Note that in terms of evaluating different imputation strategies I'm only looking at how imputation changes the totals for the "from" subidstricts, not at whether the imputation predictions the "from" subdistrict for each community.
+
+```{r}
+#Examining this graphically
+
+comm_na_hotdeck %>%
+  group_by(F_Sub.District_En, original) %>%
+  summarize(n = sum(New.Arrivals..HH.)) %>% 
+  pivot_wider(names_from = original,
+              values_from = n) %>%
+  ggplot(aes(log(yes), log(no))) +
+  geom_point(alpha = 0.3)
+
+#Creating a datatable
+
+comm_na_hotdeck %>%
+  group_by(F_Sub.District_En, original) %>%
+  summarize(n = sum(New.Arrivals..HH.)) %>%
+  pivot_wider(names_from = original,
+              values_from = n) %>%
+  mutate(diff = yes - no) %>%
+  datatable()
+ 
+
+```
+As illustrated above, this is not a particular accurate approach. However, we need to express this as a number. I'm taking the sum of the absolute difference between the true and imputed household arrivals for each "from" subdistrict and dividing this by the total number of household arrivals for December. Obviously, a lower number is better.
+
+This number is most useful when it's averaged over a number of simulations as different simulations will involve different numbers of NA's (b/c we're selecting rows for NA which contain different number of arrival households).
+
+```{r}
+#Computing the percentage 
+
+comm_na_hotdeck %>%
+  group_by(F_Sub.District_En, original) %>%
+  summarize(n = sum(New.Arrivals..HH.)) %>% 
+  pivot_wider(names_from = original,
+              values_from = n) %>%
+  mutate(abs_diff = abs(yes - no)) %>%
+  ungroup() %>%
+  summarise(diff = sum(abs_diff) / sum(yes))
+
+
+```
+
+Okay, now we'll create a function to help us run a number of simulations.
+
+First, the hotdeck function.
+
+```{r}
+cal_comm_hotdeck <- function(order, domain) {
+  
+  data <- create_comm_na(116)
+
+  data_imputed <- hotdeck(data = data,
+                          variable = c("F_Sub.District_En"),
+                          ord_var = c(order),
+                          domain_var = c(domain))
+ 
+  bind_rows(data_imputed, arrivals) %>%
+    mutate(original = ifelse(is.na(F_Sub.District_En_imp), "yes", "no")) %>%
+    group_by(F_Sub.District_En, original) %>%
+    summarize(n = n()) %>%
+    pivot_wider(names_from = original,
+              values_from = n) %>%
+    mutate(no = ifelse(is.na(no), 0, no),
+         abs_diff = abs(yes - no)) %>%
+    ungroup() %>%
+    summarise(diff = sum(abs_diff) / sum(yes))
+
+}
+
+```
+
+Now the KNN function.
+
+```{r}
+
+cal_comm_knn <- function(k,
+                         dist_var,
+                         catFun,
+                         addRandom) {
+  
+  data <- create_comm_na(116)
+
+  data_imputed <- kNN(data = data,
+               variable = c("F_Sub.District_En"),
+               dist_var = c(dist_var),
+               weights = NULL,
+               k = k,
+               catFun = catFun,
+               addRandom = addRandom)
+  
+   bind_rows(data_imputed, arrivals) %>%
+    mutate(original = ifelse(is.na(F_Sub.District_En_imp), "yes", "no")) %>%
+    group_by(F_Sub.District_En, original) %>%
+    summarize(n = n()) %>%
+    pivot_wider(names_from = original,
+              values_from = n) %>%
+    mutate(no = ifelse(is.na(no), 0, no),
+         abs_diff = abs(yes - no)) %>%
+    ungroup() %>%
+    summarise(diff = sum(abs_diff) / sum(yes))
+
+}
+
+```
+
+Now that this is set up we'll run a few simulations.
+
+1) Hotdeck imputation at the community level with one domain.
+
+```{r}
+
+set.seed(100)
+
+HOTDECK_COM_NULL_NULL <- sapply(1:200, function(i) {cal_comm_hotdeck(order = NULL, 
+                                            domain = NULL)}) %>%
+  unlist() %>%
+  mean()
+
+```
+
+2) Hotdeck imputation at the community level with districts of arrival as domains.
+
+```{r}
+
+set.seed(100)
+
+HOTDECK_COM_NULL_DIS.ARRIVAL <- sapply(1:200, function(i) {cal_comm_hotdeck(order = NULL, 
+                                            domain = "T_District_En")}) %>%
+  unlist() %>%
+  mean()
+
+```
+
+3) Hotdeck imputation at the community level with districts of arrival as domains, ordered by number of household arrivals
+
+```{r}
+
+set.seed(100)
+
+HOTDECK_COM_HH.ARRIVAL_DIS.ARRIVAL <- sapply(1:200, function(i) {cal_comm_hotdeck(order = "New.Arrivals..HH.", 
+                                            domain = "T_District_En")}) %>%
+  unlist() %>%
+  mean()
+
+```
+
+4) KNN imputation at the community level with distance determined by lat and long and the 100 NN's sampled proportionately with random noise added for ties.
+
+```{r}
+
+set.seed(100)
+
+kNN_COM_100_LAT.LON_SAMPLE_TRUE <- sapply(1:200, function(i) {cal_comm_knn(100, dist_var = c("lat", "long"), catFun = sampleCat, addRandom = TRUE)}) %>%
+  unlist() %>%
+  mean()
+
+```
+
+```{r}
+#Codes added to export results for paper
+#Creating data frame with all results
+plot1 <- data.frame(Approach=c("HOTDECK_COM_NULL_NULL","HOTDECK_COM_NULL_DIS.ARRIVAL","HOTDECK_COM_HH.ARRIVAL_DIS.ARRIVAL","kNN_COM_100_SAMPLE_TRUE"), Margin_Error = c(HOTDECK_COM_NULL_NULL,HOTDECK_COM_NULL_DIS.ARRIVAL,HOTDECK_COM_HH.ARRIVAL_DIS.ARRIVAL,kNN_COM_100_SAMPLE_TRUE)) %>% 
+  mutate(Margin_Error = round(Margin_Error, 4))
+
+write_xlsx(plot1, "src/plot1.xlsx")
+```
+
+
+Of these four approaches, the hotdeck imputation with "to" districts as domains and the KNN approach were best. Hotdeck imputation without domains was only very slightly worse. Ordering by number of HH arrivals led to far worse predictions.
+
+### Household level imputation 
+
+Now we'll move to household level imputation.
+
+```{r}
+
+create_hh_na <- function(n)  {
+  
+  na <- sample_n(arrivals, n) %>%
+    mutate(F_Sub.District_En = NA)
+  
+  not_na <-anti_join(arrivals, na, by = "id")
+  
+  with_na <- bind_rows(not_na, na)
+  
+  with_na <- with_na %>%
+  rowwise() %>%
+  slice(rep(1:n(), each = New.Arrivals..HH.)) %>%
+    mutate(junk = runif(1))
+  
+}
+
+#Outside of the function, we also generate the df called "arrivals_each" that represents each arrival as one row. 
+
+arrivals_each <- arrivals %>%
+  filter(!is.na(F_Sub.District_En)) %>%
+  rowwise() %>%
+  slice(rep(1:n(), each = New.Arrivals..HH.)) 
+
+```
+
+Once again, before we run a lot of simulations, we'll work through just one example.
+
+Again, generating a single draw.
+
+```{r}
+
+set.seed(100)
+
+dat_hh <- create_hh_na(116)
+
+```
+
+We take the same appraoch from 4) above where we take the 100 nearest neighbors. 
+
+```{r}
+
+dat_hh_imputed <- kNN(data = dat_hh,
+               variable = c("F_Sub.District_En"),
+               dist_var = c("lat", "long"),
+               weights = NULL,
+               k = 100,
+               catFun = sampleCat,
+               addRandom = TRUE)
+
+dat_hh_imputed <- bind_rows(dat_hh_imputed, arrivals_each) %>%
+  mutate(original = ifelse(is.na(F_Sub.District_En_imp), "yes", "no"))
+
+dat_hh_imputed %>%
+  group_by(F_Sub.District_En, original) %>%
+  summarize(n = n()) %>%
+  pivot_wider(names_from = original,
+              values_from = n) %>%
+  ggplot(aes(log(yes), log(no))) +
+  geom_point(alpha = 0.3)
+
+dat_hh_imputed %>%
+  group_by(F_Sub.District_En, original) %>%
+  summarize(n = n()) %>%
+  pivot_wider(names_from = original,
+              values_from = n) %>%
+  mutate(diff = yes - no) %>%
+  datatable()
+
+    
+```
+
+```{r}
+dat_hh_imputed %>%
+  group_by(F_Sub.District_En, original) %>%
+  summarize(n = sum(New.Arrivals..HH.)) %>% 
+  pivot_wider(names_from = original,
+              values_from = n) %>%
+  mutate(abs_diff = abs(yes - no)) %>%
+  ungroup() %>%
+  summarise(diff = sum(abs_diff) / sum(yes))
+```
+
+Now we'll create functions so we can run simulations here with both hotdeck imputation and knn.
+
+First, the hotdeck function.
+
+```{r}
+cal_hh_hotdeck <- function(order, domain) {
+  
+  data <- create_hh_na(116)
+
+  data_imputed <- hotdeck(data = data,
+                          variable = c("F_Sub.District_En"),
+                          ord_var = c(order),
+                          domain_var = c(domain))
+ 
+  bind_rows(data_imputed, arrivals_each) %>%
+    mutate(original = ifelse(is.na(F_Sub.District_En_imp), "yes", "no")) %>%
+    group_by(F_Sub.District_En, original) %>%
+    summarize(n = n()) %>%
+    pivot_wider(names_from = original,
+              values_from = n) %>%
+    mutate(no = ifelse(is.na(no), 0, no),
+         abs_diff = abs(yes - no)) %>%
+    ungroup() %>%
+    summarise(diff = sum(abs_diff) / sum(yes))
+
+}
+
+```
+
+Now the KNN function.
+
+```{r}
+
+cal_hh_knn <- function(k,
+                         dist_var,
+                         catFun,
+                         addRandom) {
+  
+  data <- create_hh_na(116)
+
+  data_imputed <- kNN(data = data,
+               variable = c("F_Sub.District_En"),
+               dist_var = c(dist_var),
+               weights = NULL,
+               k = k,
+               catFun = catFun,
+               addRandom = addRandom)
+  
+   bind_rows(data_imputed, arrivals_each) %>%
+    mutate(original = ifelse(is.na(F_Sub.District_En_imp), "yes", "no")) %>%
+    group_by(F_Sub.District_En, original) %>%
+    summarize(n = n()) %>%
+    pivot_wider(names_from = original,
+              values_from = n) %>%
+    mutate(no = ifelse(is.na(no), 0, no),
+         abs_diff = abs(yes - no)) %>%
+    ungroup() %>%
+    summarise(diff = sum(abs_diff) / sum(yes))
+
+}
+
+```
+
+5) KNN imputation at the household level with distance determined by lat and long and the 100 NN's sampled proportionately with random noise added for ties.
+
+```{r}
+
+set.seed(100)
+
+kNN_HH_100_LAT.LON_SAMPLE_TRUE <- sapply(1:100, function(i) {cal_hh_knn(100, dist_var = c("lat", "long"), catFun = sampleCat, addRandom = TRUE)}) %>%
+  unlist() %>%
+  mean()
+
+```
+
+6) KNN imputation at the household level with distance determined by lat and long and the 50 NN's sampled proportionately with random noise added for ties.
+
+```{r}
+
+set.seed(100)
+
+kNN_HH_50_LAT.LON_SAMPLE_TRUE <- sapply(1:100, function(i) {cal_hh_knn(50, dist_var = c("lat", "long"), catFun = sampleCat, addRandom = TRUE)}) %>%
+  unlist() %>%
+  mean()
+
+```
+
+7) KNN imputation at the household level with distance determined by lat and long and the 200 NN's sampled proportionately with random noise added for ties.
+
+```{r}
+
+set.seed(100)
+
+kNN_HH_200_LAT.LON_SAMPLE_TRUE <- sapply(1:100, function(i) {cal_hh_knn(200, dist_var = c("lat", "long"), catFun = sampleCat, addRandom = TRUE)}) %>%
+  unlist() %>%
+  mean()
+
+```
+
+```{r}
+#Codes added to export results for paper
+#Creating data frame with all results
+plot2 <- data.frame(Approach=c("kNN_HH_50_SAMPLE_TRUE","kNN_HH_100_SAMPLE_TRUE","kNN_HH_200_SAMPLE_TRUE"), Margin_Error = c(kNN_HH_50_SAMPLE_TRUE,kNN_HH_100_SAMPLE_TRUE,kNN_HH_200_SAMPLE_TRUE)) %>% 
+  mutate(Margin_Error = round(Margin_Error, 4))
+
+write_xlsx(plot2, "src/plot2.xlsx")
+```
+
+200 nearest neighbors seems adequate so I'll work with this and try tweaking a few other variables.
+
+8) KNN imputation at the household level with distance determined by lat, long, and hh arrivals the 200 NN's sampled proportionately with random noise added for ties.
+
+```{r}
+
+set.seed(100)
+
+kNN_HH_200_LAT.LON.HH_SAMPLE_TRUE <- sapply(1:200, function(i) {
+  cal_hh_knn(200, dist_var = c("lat", "long", "New.Arrivals..HH."), catFun = sampleCat, addRandom = TRUE)}) %>%
+  unlist() %>%
+  mean()
+
+```
+
+Adding HH arrivals decreased the accuracy of our predictions.
+
+9) KNN imputation at the household level with distance determined by lat and long and the max category of the nearest neighbors with random noise added for ties.
+
+```{r}
+
+set.seed(100)
+
+kNN_HH_200_LAT.LON_MAX_TRUE <- sapply(1:200, function(i) {cal_hh_knn(200, dist_var = c("lat", "long"), catFun = maxCat, addRandom = TRUE)}) %>%
+  unlist() %>%
+  mean()
+
+```
+
+As expected, this is significantly worse.
+
+10) KNN imputation at the household level with distance determined by lat and long and the 100 NN's sampled proportionately <b> without </b> random noise added for ties.
+
+```{r}
+
+set.seed(100)
+
+kNN_HH_200_LAT.LON_SAMPLE_FALSE <- sapply(1:200, function(i) {cal_hh_knn(200, dist_var = c("lat", "long"), catFun = sampleCat, addRandom = FALSE)}) %>%
+  unlist() %>%
+  mean()
+
+```
+
+```{r}
+#Codes added to export results for paper
+#Creating data frame with all results
+plot3 <- data.frame(Approach=c("kNN_HH_200_LAT.LON.HH_SAMPLE_TRUE","kNN_HH_200_LAT.LON_MAX_TRUE","kNN_HH_200_LAT.LON_SAMPLE_FALSE"), Margin_Error = c(kNN_HH_200_LAT.LON.HH_SAMPLE_TRUE,kNN_HH_200_LAT.LON_MAX_TRUE,kNN_HH_200_LAT.LON_SAMPLE_FALSE)) %>% 
+  mutate(Margin_Error = round(Margin_Error, 4))
+
+write_xlsx(plot3, "src/plot3.xlsx")
+```
+
+11) Hotdeck imputation at the household level with one domain.
+
+```{r}
+
+set.seed(100)
+
+HOTDECK_HH_NULL_NULL <- sapply(1:200, function(i) {cal_hh_hotdeck(order = NULL, 
+                                            domain = NULL)}) %>%
+  unlist() %>%
+  mean()
+
+```
+
+12) Hotdeck imputation at the household level with arrival to districts as domains.
+
+```{r}
+
+set.seed(100)
+
+HOTDECK_HH_NULL_DIS.ARRIVAL <- sapply(1:200, function(i) {cal_hh_hotdeck(order = NULL, 
+                                            domain = "T_District_En")}) %>%
+  unlist() %>%
+  mean()
+
+```
+
+13) Hotdeck imputation at the household level with arrival to districts as domains, ordered by HH of arrivals
+
+```{r}
+
+set.seed(100)
+
+HOTDECK_HH_HH.ARRIVAL_DIS.ARRIVAL <- sapply(1:200, function(i) {cal_hh_hotdeck(order = "New.Arrivals..HH.", 
+                                            domain = "T_District_En")}) %>%
+  unlist() %>%
+  mean()
+
+```
+```{r}
+#Codes added to export results for paper
+#Creating data frame with all results
+plot4 <- data.frame(Approach=c("HOTDECK_HH_NULL_NULL","HOTDECK_HH_NULL_DIS.ARRIVAL","HOTDECK_HH_HH.ARRIVAL_DIS.ARRIVAL"), Margin_Error = c(HOTDECK_HH_NULL_NULL,HOTDECK_HH_NULL_DIS.ARRIVAL,HOTDECK_HH_HH.ARRIVAL_DIS.ARRIVAL)) %>% 
+  mutate(Margin_Error = round(Margin_Error, 4))
+
+write_xlsx(plot4, "src/plot4.xlsx")
+```
+So this is what we seem to see:
+
+Imputing at the household level produces better results than imputing at the community (row) level. KNN produces better results than hotdeck imputation but only nominally so. Taking 200 nearest neighbors was nominally better than taking 100 but perhaps not better enough to justify the higher computational burden.
+
+Using the number of arrivals as a distance variable (KNN) or ordering variable (hotdeck) is not helpful.
+
+Adding random noise is helpful. Sampling form the nearest neighbors is much better than taking the most common "from" subdistrict of the nearest neighbors.
+
+On the whole, though, most of the different approaches I've taken here yield results that are more or less similar.
+
+```{r}
+library(sf)
+
+calc_neigh <- function(d){
+  comm.sf <- arrivals %>% 
+    select(T_Community_PCODE, lat, long) %>% 
+    distinct() %>% 
+    st_as_sf(coords = c("long", "lat"), crs = 4326)
+  
+  neigh <- lapply(comm.sf$T_Community_PCODE, function(x){
+    comm.sf$distance <- as.numeric(st_distance(comm.sf, 
+                                               comm.sf[comm.sf$T_Community_PCODE==x,]))
+    neighbouring.comm <- filter(comm.sf, distance < 10000)$T_Community_PCODE
+  })
+  names(neigh) <- comm.sf$T_Community_PCODE
+  return(neigh)
+}
+
+calc_neigh_n <- function(n){
+  comm.sf <- arrivals %>% 
+    select(T_Community_PCODE, lat, long) %>% 
+    distinct() %>% 
+    st_as_sf(coords = c("long", "lat"), crs = 4326)
+  
+  neigh <- lapply(comm.sf$T_Community_PCODE, function(x){
+    comm.sf$distance <- as.numeric(st_distance(comm.sf, 
+                                               comm.sf[comm.sf$T_Community_PCODE==x,]))
+    neighbouring.comm <- arrange(comm.sf, distance)[1:n, ][["T_Community_PCODE"]]
+  })
+  names(neigh) <- comm.sf$T_Community_PCODE
+  return(neigh)
+}
+
+run_simulation <- function(i, n, neigh){
+  print(i)
+  # set from_subdistrict to NA for n entries
+  na <- sample_n(arrivals, n) %>% mutate(F_Sub.District_PCODE = NA)
+  not_na <- anti_join(arrivals, na, by = "id")
+  data <- bind_rows(not_na, na)
+  data_hh <- data %>% 
+    rowwise() %>%
+    slice(rep(1:n(), each = New.Arrivals..HH.))
+  
+  probabilities <- lapply(names(neigh), function(x){
+    df <- data %>% 
+      filter(T_Community_PCODE %in% neigh[[x]] & !is.na(F_Sub.District_PCODE)) %>% 
+      group_by(F_Sub.District_PCODE) %>% 
+      summarise(n.arrivals=sum(New.Arrivals..HH.)) %>% 
+      mutate(pct.arrivals=n.arrivals/sum(n.arrivals)) %>% 
+      select(-n.arrivals)
+    return(df)
+  })
+  names(probabilities) <- names(neigh)
+  
+  data_hh$prediction <- as.character(lapply(data_hh$T_Community_PCODE, function(x)
+    return(sample(x=probabilities[[x]]$F_Sub.District_PCODE, prob=probabilities[[x]]$pct.arrivals, size=1))))
+  data_hh <- data_hh %>% 
+    mutate(F_Sub.District_PCODE=ifelse(is.na(F_Sub.District_PCODE), prediction, F_Sub.District_PCODE))
+  all <- rbind(mutate(arrivals_each, pred="no"), mutate(data_hh, pred="yes") %>% select(-prediction))
+  res <- all %>% 
+    group_by(F_Sub.District_PCODE, pred) %>% 
+    summarise(n=n()) %>% 
+    pivot_wider(names_from = pred, values_from=n, values_fill=0) %>% 
+    mutate(abs_diff=abs(yes - no)) %>% 
+    ungroup() %>% 
+    summarise(diff = sum(abs_diff) / sum(yes))
+  return(res$diff)
+}
+
+set.seed(100)
+
+neigh <- calc_neigh(10000)
+neigh <- calc_neigh_n(10)
+res <- sapply(1:25, function(i) run_simulation(i, 116, neigh)) %>% unlist()
+mean(res)
+# increase 116
+# think about implications of having a lot of missing data from few sbd
+# what is the effect in the different models?
+```
+
