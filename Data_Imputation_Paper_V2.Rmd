@@ -1,6 +1,6 @@
 ---
 title: "Data Imputation using ISMI data"
-output: html_document
+output: pdf_document
 runtime: shiny
 ---
 ## {.tabset}
@@ -247,13 +247,15 @@ gps_known.sf <- st_as_sf(x = gps_known, coords = c("long", "lat"), crs = 4326)
 ```
 
 ```{r echo=FALSE, message=FALSE, warning=FALSE}
-leaflet() %>% 
+map <- leaflet() %>% 
   addCircles(data = gps_known.sf, stroke = F, fill= T, color = "black", fillOpacity = 0.75,
              radius = 1000) %>% 
   addCircles(data = from_To.cleaned.sf, stroke = F, fill= T, color = "#ee5859", fillOpacity = 0.75,
              radius = 1000) %>% 
   addProviderTiles("OpenStreetMap.Mapnik") %>% 
   addMeasure(primaryLengthUnit = "meters")
+mapview::mapshot(map,file = "map.pdf")
+
 ```
 <h4>Trend of communities choosing NAs as Sub-district of Departure by month</h4>
 ```{r echo=FALSE, message=FALSE, warning=FALSE}
@@ -270,14 +272,14 @@ filteredData <- reactive({
 
 observe({
 if(nrow(data) > 0){
-   from_To <- filteredData() %>%
+   from_To.inter <- filteredData() %>%
      mutate(clean = ifelse(is.na(`Number of IDP HHs arrived from subdistrict 1`) & is.na(`Number of IDP HHs arrived from subdistrict 3`) & is.na(`Number of IDP HHs arrived from subdistrict 2`),T,
                           ifelse(is.na(`Number of IDP HHs arrived from subdistrict 3`) & is.na(`Number of IDP HHs arrived from subdistrict 2`) &
                             `Number of IDP HH arrivals` != `Number of IDP HHs arrived from subdistrict 1`,T,
                           ifelse(is.na(`Number of IDP HHs arrived from subdistrict 3`) & sum(`Number of IDP HHs arrived from subdistrict 1`,`Number of IDP HHs arrived from subdistrict 2`) != `Number of IDP HH arrivals`,T,F)))) %>% 
     filter(!is.na(clean))
 
-  from_To.cleaned <- from_To %>% 
+  from_To.cleaned.inter <- from_To.inter %>% 
     filter(clean == T) %>% 
     gather(col, value, From_Sub:`Number of IDP HHs arrived from subdistrict 3`) %>% 
     mutate(col = ifelse(col == "Subdistrict of last departure 2", "From_Sub",
@@ -292,15 +294,15 @@ if(nrow(data) > 0){
     group_by(To_Com) %>% 
     summarise(Sub_NA = n())
   
-  from_To.cleaned <- left_join(from_To.cleaned, locations, by="To_Com")
+  from_To.cleaned.inter <- left_join(from_To.cleaned.inter, locations, by="To_Com")
   
-  gps_known <- data %>%
+  gps_known <- filteredData() %>%
     select(To_Com) 
   gps_known <- gps_known[!duplicated(gps_known$To_Com),]
   gps_known <- gps_known %>% 
     filter(!(To_Com %in% from_To.cleaned$To_Com)) %>% 
     left_join(locations, by="To_Com")
-  from_To.cleaned.sf <- st_as_sf(x = from_To.cleaned, coords = c("long", "lat"), crs = 4326)
+  from_To.cleaned.sf <- st_as_sf(x = from_To.cleaned.inter, coords = c("long", "lat"), crs = 4326)
   gps_known.sf <- st_as_sf(x = gps_known, coords = c("long", "lat"), crs = 4326)
   
   output$map <- renderLeaflet({
