@@ -22,9 +22,9 @@ library(writexl)
 
 options(dplyr.summarise.inform = FALSE)
 
-arrivals <- read.csv("REACH_December_2020.csv")
+arrivals <- read.csv("data/REACH_December_2020.csv")
 
-locations <- read.csv("ocha_locations.csv")
+locations <- read.csv("data/ocha_locations.csv")
 
 #Here I'm adding a column for ids.
 

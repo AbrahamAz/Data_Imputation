@@ -1,6 +1,6 @@
 ---
 title: "Data Imputation using ISMI data"
-output: pdf_document
+output: html_document
 runtime: shiny
 ---
 ## {.tabset}
@@ -57,7 +57,7 @@ References:<br>
 
 We also did used two methodologies to insert NAs in our ISMI dataset: <br>
 <ul><li> Randomized selection of NA values depending on the percentage of missing data from previous rounds</li>
-<li> Forced selection of NA values on .....</li></ul>
+<li> Forced selection of NA values on .....(*Waiting for Sarah's Reply*)</li></ul>
 
 Multiple simulations were run using different parameters and variables. The result is comparing the accuracy each simulation by calculating the margin of error (%) before and after data imputation. <br>
 <b>For Data Unit:</b> VIM package from R was used for both Hot Deck and kNN simulations.
@@ -199,31 +199,6 @@ data$`Number of IDP HHs arrived from subdistrict 1` <- as.numeric(data$`Number o
 data$`Number of IDP HHs arrived from subdistrict 2` <- as.numeric(data$`Number of IDP HHs arrived from subdistrict 2`)
 data$`Number of IDP HHs arrived from subdistrict 3` <- as.numeric(data$`Number of IDP HHs arrived from subdistrict 3`)
 
-gps_na_dec2020 <- data %>% 
-  filter(`Start of data coverage peirod` == "December 2020")
-
-from_To <- gps_na_dec2020 %>% 
-  mutate(clean = ifelse(is.na(`Number of IDP HHs arrived from subdistrict 1`) & is.na(`Number of IDP HHs arrived from subdistrict 3`) & is.na(`Number of IDP HHs arrived from subdistrict 2`),T,
-                        ifelse(is.na(`Number of IDP HHs arrived from subdistrict 3`) & is.na(`Number of IDP HHs arrived from subdistrict 2`) &
-                          `Number of IDP HH arrivals` != `Number of IDP HHs arrived from subdistrict 1`,T,
-                        ifelse(is.na(`Number of IDP HHs arrived from subdistrict 3`) & sum(`Number of IDP HHs arrived from subdistrict 1`,`Number of IDP HHs arrived from subdistrict 2`) != `Number of IDP HH arrivals`,T,F)))) %>% 
-  filter(!is.na(clean))
-
-from_To.cleaned <- from_To %>% 
-  filter(clean == T) %>% 
-  gather(col, value, From_Sub:`Number of IDP HHs arrived from subdistrict 3`) %>% 
-  mutate(col = ifelse(col == "Subdistrict of last departure 2", "From_Sub",
-                      ifelse(col == "Subdistrict of last departure 3","From_Sub",
-                             ifelse(col=="Number of IDP HHs arrived from subdistrict 1", "HH_arrival",
-                                    ifelse(col=="Number of IDP HHs arrived from subdistrict 2", "HH_arrival",
-                                           ifelse(col=="Number of IDP HHs arrived from subdistrict 3", "HH_arrival",col)))))) %>% 
-  pivot_wider(names_from = col,
-              values_from = value) %>%  unnest() %>% 
-  select(From_Sub, To_Com, HH_arrival) %>% 
-  filter(From_Sub == "Not sure") %>% 
-  group_by(To_Com) %>% 
-  summarise(Sub_NA = n())
-
 locations <- read.csv("data/ocha_locations.csv")
 
 locations <- locations %>%
@@ -231,31 +206,80 @@ locations <- locations %>%
   select(lat, long, community_pcode) %>%
   rename(To_Com = community_pcode) %>%
   distinct(To_Com, .keep_all = TRUE)
-
-from_To.cleaned <- left_join(from_To.cleaned, locations, by="To_Com") 
-
-
-gps_known <- gps_na_dec2020 %>%
-  select(To_Com) 
-gps_known <- gps_known[!duplicated(gps_known$To_Com),]
-gps_known <- gps_known %>% 
-  filter(!(To_Com %in% from_To.cleaned$To_Com)) %>% 
-  left_join(locations, by="To_Com")
-
-from_To.cleaned.sf <- st_as_sf(x = from_To.cleaned, coords = c("long", "lat"), crs = 4326)
-gps_known.sf <- st_as_sf(x = gps_known, coords = c("long", "lat"), crs = 4326)
 ```
 
-```{r echo=FALSE, message=FALSE, warning=FALSE}
-map <- leaflet() %>% 
-  addCircles(data = gps_known.sf, stroke = F, fill= T, color = "black", fillOpacity = 0.75,
-             radius = 1000) %>% 
-  addCircles(data = from_To.cleaned.sf, stroke = F, fill= T, color = "#ee5859", fillOpacity = 0.75,
-             radius = 1000) %>% 
-  addProviderTiles("OpenStreetMap.Mapnik") %>% 
-  addMeasure(primaryLengthUnit = "meters")
-mapview::mapshot(map,file = "map.pdf")
+```{r message=FALSE, warning=FALSE, include=FALSE}
 
+gps_na_dec2020 <- data %>% 
+  filter(`Start of data coverage peirod` == "December 2020") %>% 
+  mutate(clean = ifelse(is.na(`Number of IDP HHs arrived from subdistrict 1`) & is.na(`Number of IDP HHs arrived from subdistrict 3`) & is.na(`Number of IDP HHs arrived from subdistrict 2`),T,
+                        ifelse(is.na(`Number of IDP HHs arrived from subdistrict 3`) & is.na(`Number of IDP HHs arrived from subdistrict 2`) &
+                          `Number of IDP HH arrivals` != `Number of IDP HHs arrived from subdistrict 1`,T,
+                        ifelse(is.na(`Number of IDP HHs arrived from subdistrict 3`) & sum(`Number of IDP HHs arrived from subdistrict 1`,`Number of IDP HHs arrived from subdistrict 2`) != `Number of IDP HH arrivals`,T,F))))
+gps_na_dec2020 <- gps_na_dec2020 %>% 
+  mutate(clean = ifelse(is.na(clean), FALSE, clean),
+         `Number of IDP HHs arrived from subdistrict 1` = ifelse(is.na(`Number of IDP HHs arrived from subdistrict 1`), 0, `Number of IDP HHs arrived from subdistrict 1`),
+         `Number of IDP HHs arrived from subdistrict 2` = ifelse(is.na(`Number of IDP HHs arrived from subdistrict 2`), 0, `Number of IDP HHs arrived from subdistrict 2`),
+         `Number of IDP HHs arrived from subdistrict 3` = ifelse(is.na(`Number of IDP HHs arrived from subdistrict 3`), 0, `Number of IDP HHs arrived from subdistrict 3`),
+         `Subdistrict of last departure 3` = ifelse(clean == T & (`Number of IDP HH arrivals` - (`Number of IDP HHs arrived from subdistrict 1` + `Number of IDP HHs arrived from subdistrict 2`)) == 1, "To Remove", `Subdistrict of last departure 3`),
+         percentage = ifelse(clean == T,100*( 1 - ((`Number of IDP HHs arrived from subdistrict 1` + `Number of IDP HHs arrived from subdistrict 2` + `Number of IDP HHs arrived from subdistrict 3`) / `Number of IDP HH arrivals`)),0))
+
+
+# from_To.cleaned <- gps_na_dec2020 %>% 
+#   filter(clean == T) %>% 
+#   gather(col, value, From_Sub:`Number of IDP HHs arrived from subdistrict 3`) %>% 
+#   mutate(col = ifelse(col == "Subdistrict of last departure 2", "From_Sub",
+#                       ifelse(col == "Subdistrict of last departure 3","From_Sub",
+#                              ifelse(col=="Number of IDP HHs arrived from subdistrict 1", "HH_arrival",
+#                                     ifelse(col=="Number of IDP HHs arrived from subdistrict 2", "HH_arrival",
+#                                            ifelse(col=="Number of IDP HHs arrived from subdistrict 3", "HH_arrival",col)))))) %>% 
+#   pivot_wider(names_from = col,
+#               values_from = value) %>%  unnest() %>% 
+#   select(From_Sub, To_Com, HH_arrival) %>% 
+#   filter(From_Sub == "Not sure") %>% 
+#   group_by(To_Com) %>% 
+#   summarise(Sub_NA = n())
+# 
+# from_To.known <- gps_na_dec2020 %>% 
+#   gather(col, value, From_Sub:`Number of IDP HHs arrived from subdistrict 3`) %>% 
+#   mutate(col = ifelse(col == "Subdistrict of last departure 2", "From_Sub",
+#                       ifelse(col == "Subdistrict of last departure 3","From_Sub",
+#                              ifelse(col=="Number of IDP HHs arrived from subdistrict 1", "HH_arrival",
+#                                     ifelse(col=="Number of IDP HHs arrived from subdistrict 2", "HH_arrival",
+#                                            ifelse(col=="Number of IDP HHs arrived from subdistrict 3", "HH_arrival",col)))))) %>% 
+#   pivot_wider(names_from = col,
+#               values_from = value) %>%  unnest() %>% 
+#   select(From_Sub, To_Com, HH_arrival) %>% 
+#   filter(From_Sub != "Not sure" & From_Sub != "To Remove") %>% 
+#   group_by(To_Com) %>% 
+#   summarise(Sub_known = n()) 
+
+
+# from_To.cleaned.sf <- st_as_sf(x = from_To.cleaned, coords = c("long", "lat"), crs = 4326)
+# gps_known.sf <- st_as_sf(x = gps_known, coords = c("long", "lat"), crs = 4326)
+
+unknown_com <- gps_na_dec2020 %>% 
+  select(To_Com,percentage) %>% 
+  filter(percentage != 0) %>% 
+  left_join(locations, by = "To_Com")
+
+known_com <- gps_na_dec2020 %>% 
+  select(To_Com,percentage) %>% 
+  filter(percentage == 0) %>% 
+  left_join( locations, by = "To_Com")
+
+unknown_com.sf <- st_as_sf(x = unknown_com, coords = c("long", "lat"), crs = 4326)
+known_com.sf <- st_as_sf(x = known_com, coords = c("long", "lat"), crs = 4326)
+```
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+leaflet() %>%
+  addCircles(data = known_com.sf, stroke = F, fill= T, color = "black", fillOpacity = 0.75,
+             radius = 500) %>% 
+  addCircles(data = unknown_com.sf, stroke = F, fill= T, color = "#ee5859", fillOpacity = 0.75,
+             radius = unknown_com.sf$percentage * 25) %>%
+  addProviderTiles("OpenStreetMap.Mapnik")
 ```
 <h4>Trend of communities choosing NAs as Sub-district of Departure by month</h4>
 ```{r echo=FALSE, message=FALSE, warning=FALSE}
@@ -272,47 +296,38 @@ filteredData <- reactive({
 
 observe({
 if(nrow(data) > 0){
-   from_To.inter <- filteredData() %>%
+   monthly_data <- filteredData() %>%
      mutate(clean = ifelse(is.na(`Number of IDP HHs arrived from subdistrict 1`) & is.na(`Number of IDP HHs arrived from subdistrict 3`) & is.na(`Number of IDP HHs arrived from subdistrict 2`),T,
-                          ifelse(is.na(`Number of IDP HHs arrived from subdistrict 3`) & is.na(`Number of IDP HHs arrived from subdistrict 2`) &
-                            `Number of IDP HH arrivals` != `Number of IDP HHs arrived from subdistrict 1`,T,
-                          ifelse(is.na(`Number of IDP HHs arrived from subdistrict 3`) & sum(`Number of IDP HHs arrived from subdistrict 1`,`Number of IDP HHs arrived from subdistrict 2`) != `Number of IDP HH arrivals`,T,F)))) %>% 
-    filter(!is.na(clean))
+                           ifelse(is.na(`Number of IDP HHs arrived from subdistrict 3`) & is.na(`Number of IDP HHs arrived from subdistrict 2`) &
+                          `Number of IDP HH arrivals` != `Number of IDP HHs arrived from subdistrict 1`,T,
+                          ifelse(is.na(`Number of IDP HHs arrived from subdistrict 3`) & sum(`Number of IDP HHs arrived from subdistrict 1`,`Number of IDP HHs arrived from subdistrict 2`) != `Number of IDP HH arrivals`,T,F))))
+   
+monthly_data <- monthly_data %>% 
+  mutate(clean = ifelse(is.na(clean), FALSE, clean),
+         `Number of IDP HHs arrived from subdistrict 1` = ifelse(is.na(`Number of IDP HHs arrived from subdistrict 1`), 0, `Number of IDP HHs arrived from subdistrict 1`),
+         `Number of IDP HHs arrived from subdistrict 2` = ifelse(is.na(`Number of IDP HHs arrived from subdistrict 2`), 0, `Number of IDP HHs arrived from subdistrict 2`),
+         `Number of IDP HHs arrived from subdistrict 3` = ifelse(is.na(`Number of IDP HHs arrived from subdistrict 3`), 0, `Number of IDP HHs arrived from subdistrict 3`),
+         `Subdistrict of last departure 3` = ifelse(clean == T & (`Number of IDP HH arrivals` - (`Number of IDP HHs arrived from subdistrict 1` + `Number of IDP HHs arrived from subdistrict 2`)) == 1, "To Remove", `Subdistrict of last departure 3`),
+         percentage = ifelse(clean == T,100*( 1 - ((`Number of IDP HHs arrived from subdistrict 1` + `Number of IDP HHs arrived from subdistrict 2` + `Number of IDP HHs arrived from subdistrict 3`) / `Number of IDP HH arrivals`)),0))
 
-  from_To.cleaned.inter <- from_To.inter %>% 
-    filter(clean == T) %>% 
-    gather(col, value, From_Sub:`Number of IDP HHs arrived from subdistrict 3`) %>% 
-    mutate(col = ifelse(col == "Subdistrict of last departure 2", "From_Sub",
-                        ifelse(col == "Subdistrict of last departure 3","From_Sub",
-                               ifelse(col=="Number of IDP HHs arrived from subdistrict 1", "HH_arrival",
-                                      ifelse(col=="Number of IDP HHs arrived from subdistrict 2", "HH_arrival",
-                                             ifelse(col=="Number of IDP HHs arrived from subdistrict 3", "HH_arrival",col)))))) %>% 
-    pivot_wider(names_from = col,
-                values_from = value) %>%  unnest() %>% 
-    select(From_Sub, To_Com, HH_arrival) %>% 
-    filter(From_Sub == "Not sure") %>% 
-    group_by(To_Com) %>% 
-    summarise(Sub_NA = n())
+  unknown_com <- monthly_data %>% 
+    select(To_Com,percentage) %>% 
+    filter(percentage != 0) %>% 
+    left_join(locations, by = "To_Com")
   
-  from_To.cleaned.inter <- left_join(from_To.cleaned.inter, locations, by="To_Com")
-  
-  gps_known <- filteredData() %>%
-    select(To_Com) 
-  gps_known <- gps_known[!duplicated(gps_known$To_Com),]
-  gps_known <- gps_known %>% 
-    filter(!(To_Com %in% from_To.cleaned$To_Com)) %>% 
-    left_join(locations, by="To_Com")
-  from_To.cleaned.sf <- st_as_sf(x = from_To.cleaned.inter, coords = c("long", "lat"), crs = 4326)
-  gps_known.sf <- st_as_sf(x = gps_known, coords = c("long", "lat"), crs = 4326)
-  
+  known_com <- monthly_data %>% 
+    select(To_Com,percentage) %>% 
+    filter(percentage == 0) %>% 
+    left_join( locations, by = "To_Com")
+  unknown_com.sf <- st_as_sf(x = unknown_com, coords = c("long", "lat"), crs = 4326)
+  known_com.sf <- st_as_sf(x = known_com, coords = c("long", "lat"), crs = 4326)
   output$map <- renderLeaflet({
-   leaflet(options = leafletOptions(zoomControl = FALSE)) %>% 
-      addCircles(data = gps_known.sf, stroke = F, fill= T, color = "black", fillOpacity = 0.75,
-             radius = 1000) %>% 
-      addCircles(data = from_To.cleaned.sf, stroke = F, fill= T, color = "#ee5859", fillOpacity = 0.75,
-                 radius = 1000) %>% 
-      addProviderTiles("OpenStreetMap.Mapnik") %>% 
-      addMeasure(primaryLengthUnit = "meters")
+   leaflet(options = leafletOptions(zoomControl = FALSE)) %>%  
+      addCircles(data = known_com.sf, stroke = F, fill= T, color = "black", fillOpacity = 0.75,
+                 radius = 500) %>% 
+      addCircles(data = unknown_com.sf, stroke = F, fill= T, color = "#ee5859", fillOpacity = 0.75,
+             radius = unknown_com.sf$percentage * 30) %>%
+      addProviderTiles("OpenStreetMap.Mapnik")
   }) 
 }
  
@@ -331,10 +346,15 @@ leafletOutput("map", width = "100%",height = "700px")
 <li>kNN produces better results than the Hot Deck imputation strategy but only nominally; Taking 200 NNs was better then 100 or 50 NNs, but this added a lot of burden on the computation.</li>
 <li>Adding variables to the distance variables for kNN or changing the order of variables for Hot Deck was not better</li>
 <li>Adding random noise helped adding ties between neighbors</li>
+<li>Unknown sub-district of departure were reported randomly on a geographical distribution which makes our case more realistic</li>
 </ul>
 On the whole, most of the different approaches yielded more or less similar results.<br>
 <b>Worst simulation</b> was the Hot Deck, community level, ordered by number of HH arrivals and using the domain of the district of arrival. <br>
-<b>Best simulation</b> was the kNN, HH level, 200 NNs sampled proportionately with random noise added. 
+<b>Best simulation</b> was the kNN, HH level, 200 NNs sampled proportionately with random noise added.<br> 
+
+Next steps:<br>
+- Check with Sarah to see if there is data we can add En Id to the raw data or the whole data to check data quality
+- Check with Enumerators of the reason of having unknown sub-districts and maybe we can draw another pattern
 
 
 
