@@ -195,7 +195,7 @@ We also checked the geographical distribution of communities reporting *unknown*
 ```{r echo=FALSE, message=FALSE, warning=FALSE}
 library(leaflet)
 library(sf)
-data <- readxl::read_excel("data/Consolidated_Datasets.xlsx")
+data <- readxl::read_excel("data/Consolidated_updated.xlsx")
 
 data <- data %>% 
   select(-c(`End of data coverage period`)) %>% 
@@ -221,7 +221,7 @@ data <- data %>%
   filter(!str_detect(`Closest p-code`,"CP") & !str_starts(`Closest p-code`,"RE"))
 
 data <- data %>% 
-  select(`Start of data coverage peirod`,`Closest p-code`,`Number of IDP HH arrivals`, `Subdistrict of last departure 1`, `Number of IDP HHs arrived from subdistrict 1`,
+  select(enumID,`Start of data coverage peirod`,`Closest p-code`,`Number of IDP HH arrivals`, `Subdistrict of last departure 1`, `Number of IDP HHs arrived from subdistrict 1`,
          `Subdistrict of last departure 2`, `Number of IDP HHs arrived from subdistrict 2`,
          `Subdistrict of last departure 3`, `Number of IDP HHs arrived from subdistrict 3`) %>% 
   rename("To_Com" = `Closest p-code`,
@@ -294,7 +294,7 @@ gps_na_dec2020 <- gps_na_dec2020 %>%
 # gps_known.sf <- st_as_sf(x = gps_known, coords = c("long", "lat"), crs = 4326)
 
 unknown_com <- gps_na_dec2020 %>% 
-  select(To_Com,percentage) %>% 
+  select(To_Com,percentage,enumID) %>% 
   filter(percentage != 0) %>% 
   left_join(locations, by = "To_Com")
 
@@ -312,7 +312,7 @@ known_com.sf <- st_as_sf(x = known_com, coords = c("long", "lat"), crs = 4326)
 leaflet() %>%
   addCircles(data = known_com.sf, stroke = F, fill= T, color = "black", fillOpacity = 0.75,
              radius = 500) %>% 
-  addCircles(data = unknown_com.sf, stroke = F, fill= T, color = "#ee5859", fillOpacity = 0.75,
+  addCircles(data = unknown_com.sf, stroke = F, fill= T, color = "#ee5859",label = unknown_com.sf$enumID, labelOptions = labelOptions(noHide = T), fillOpacity = 0.75,
              radius = unknown_com.sf$percentage * 25) %>%
   addProviderTiles("OpenStreetMap.Mapnik")
 ```
