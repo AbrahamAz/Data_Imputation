@@ -294,11 +294,7 @@ gps_na_dec2020 <- gps_na_dec2020 %>%
 # gps_known.sf <- st_as_sf(x = gps_known, coords = c("long", "lat"), crs = 4326)
 
 unknown_com <- gps_na_dec2020 %>% 
-<<<<<<< HEAD
-  select(To_Com,percentage, enumID) %>% 
-=======
   select(To_Com,percentage,enumID) %>% 
->>>>>>> 7be1f48a23ce4b0ff7b33cdc8ee9a8285425ce5e
   filter(percentage != 0) %>% 
   left_join(locations, by = "To_Com")
 
@@ -316,13 +312,8 @@ known_com.sf <- st_as_sf(x = known_com, coords = c("long", "lat"), crs = 4326)
 leaflet() %>%
   addCircles(data = known_com.sf, stroke = F, fill= T, color = "black", fillOpacity = 0.75,
              radius = 500) %>% 
-<<<<<<< HEAD
-  addCircles(data = unknown_com.sf, stroke = F, fill= T, color = "#ee5859", label = unknown_com.sf$enumID, labelOptions = labelOptions(noHide = T) , fillOpacity = 0.75,
-             radius = unknown_com.sf$percentage * 25) %>% 
-=======
   addCircles(data = unknown_com.sf, stroke = F, fill= T, color = "#ee5859",label = unknown_com.sf$enumID, labelOptions = labelOptions(noHide = T), fillOpacity = 0.75,
              radius = unknown_com.sf$percentage * 25) %>%
->>>>>>> 7be1f48a23ce4b0ff7b33cdc8ee9a8285425ce5e
   addProviderTiles("OpenStreetMap.Mapnik")
 ```
 <!-- <h4>Trend of communities choosing NAs as Sub-district of Departure by month</h4> -->
