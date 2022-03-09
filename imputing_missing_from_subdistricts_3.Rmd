@@ -52,8 +52,15 @@ arrivals %>%
   distinct(id) %>%
   dim()
 
+# Forced NA
 comm_forced <- arrivals %>% 
   mutate(F_Sub.District_En = ifelse(T_Sub.District_En %in% c("Jandairis","Dana","Raju","Daret Azza"),NA,F_Sub.District_En))
+
+#Arrival conc
+arrivals <- arrivals %>% 
+  mutate(conc = paste0(T_Community_En,"_",F_Sub.District_En))
+arr <- arrivals %>% 
+  select(id, conc)
 
 ```
 
@@ -86,6 +93,7 @@ In the November data, if I remember correctly, around 10 percent of entries were
 
 set.seed(100)
 
+
 comm_na <- create_comm_na(116)
 
 ```
@@ -100,7 +108,7 @@ https://documentation.sas.com/doc/en/pgmsascdc/9.4_3.4/statug/statug_surveyimput
 
 This theory is not as well developed as that of other imputation methods.
 
-```{r}
+```{r eval=FALSE, include=FALSE}
 
 comm_na_hotdeck <- hotdeck(data = comm_na,
                           variable = c("F_Sub.District_En"),
@@ -109,7 +117,7 @@ comm_na_hotdeck <- hotdeck(data = comm_na,
 
 
 
-#Now combining the imputated data with the original data
+#Now combining the imputed data with the original data
 
 comm_na_hotdeck <- bind_rows(comm_na_hotdeck, arrivals) %>%
   mutate(original = ifelse(is.na(F_Sub.District_En_imp), "yes", "no"))
@@ -117,9 +125,26 @@ comm_na_hotdeck <- bind_rows(comm_na_hotdeck, arrivals) %>%
 
 ```
 
+
+```{r eval=FALSE, include=FALSE}
+draft <- comm_na_hotdeck %>% 
+  select(F_Sub.District_En,T_Community_En,New.Arrivals..HH.,id,F_Sub.District_En_imp) %>% 
+  filter(F_Sub.District_En_imp == TRUE) %>% 
+  mutate(conc_imp = paste0(T_Community_En,"_",F_Sub.District_En))
+
+
+
+draft <- left_join(draft, arr, by = "id")
+draft <- draft %>% 
+  mutate(wrong_imp = ifelse(conc == conc_imp, 0, New.Arrivals..HH.))
+
+## Putting together the whole imputed information (From ' To and the HH numbers) and see how the imputation is working ??? 
+
+```
+
 Note that in terms of evaluating different imputation strategies I'm only looking at how imputation changes the totals for the "from" sub-districts, not at whether the imputation predictions the "from" subdistrict for each community.
 
-```{r}
+```{r eval=FALSE, include=FALSE}
 #Examining this graphically
 
 comm_na_hotdeck %>%
@@ -133,13 +158,16 @@ comm_na_hotdeck %>%
 #Creating a datatable
 
 comm_na_hotdeck %>%
-  group_by(F_Sub.District_En, original) %>%
+  group_by(T_Community_En,F_Sub.District_En, original) %>%
   summarize(n = sum(New.Arrivals..HH.)) %>%
   pivot_wider(names_from = original,
               values_from = n) %>%
   mutate(diff = yes - no) %>%
   datatable()
 
+
+#Per community, calculate  wrong imputetd / total imputate (then mean of all %s )
+# 
 
 ```
 As illustrated above, this is not a particular accurate approach. However, we need to express this as a number. I'm taking the sum of the absolute difference between the true and imputed household arrivals for each "from" subdistrict and dividing this by the total number of household arrivals for December. Obviously, a lower number is better.
@@ -148,15 +176,18 @@ This number is most useful when it's averaged over a number of simulations as di
 
 Per community, % no to yes
 
-```{r}
+```{r eval=FALSE, include=FALSE}
 #Computing the percentage 
 
-comm_na_hotdeck %>%
-  group_by(F_Sub.District_En, original) %>%
+c <- comm_na_hotdeck %>%
+  group_by(T_Community_En, F_Sub.District_En, original, F_Sub.District_En_imp) %>%
   summarize(n = sum(New.Arrivals..HH.)) %>% 
+  mutate(F_Sub.District_En_imp = ifelse(original == "yes", FALSE, F_Sub.District_En_imp)) %>% 
   pivot_wider(names_from = original,
-              values_from = n) %>%
-  mutate(abs_diff = abs(yes - no)) %>%
+              values_from = n)%>%
+    mutate(no = ifelse(is.na(no), 0, no),
+           yes = ifelse(is.na(yes),0,yes),
+         abs_diff = abs(yes - no)) %>% 
   ungroup() %>%
   summarise(diff = sum(abs_diff) / sum(yes))
 
@@ -166,7 +197,7 @@ Okay, now we'll create a function to help us run a number of simulations.
 
 First, the hotdeck function.
 
-```{r}
+```{r eval=FALSE, include=FALSE}
 cal_comm_hotdeck_sub <- function(order, domain, forced = FALSE) {
   if (forced == TRUE){
      data <- comm_forced
@@ -225,7 +256,7 @@ cal_comm_hotdeck_com <- function(order, domain, forced = FALSE) {
 
 Now the KNN function.
 
-```{r}
+```{r eval=FALSE, include=FALSE}
 
 cal_comm_knn_sub <- function(k,
                          dist_var,
@@ -298,18 +329,81 @@ cal_comm_knn_com <- function(k,
 
 Now that this is set up we'll run a few simulations.
 
+```{r}
+
+cal_comm_hotdeck_com_draft <- function(order, domain, forced = FALSE) {
+  
+  if (forced == TRUE){
+     data <- comm_forced
+  }else{
+    data <- create_comm_na(116)
+  }
+  
+  data_imputed <- hotdeck(data = data,
+                          variable = c("F_Sub.District_En"),
+                          ord_var = c(order),
+                          domain_var = c(domain))
+  
+  data_imputed %>% 
+    select(F_Sub.District_En,T_Community_En,New.Arrivals..HH.,id,F_Sub.District_En_imp) %>% 
+    filter(F_Sub.District_En_imp == TRUE) %>% 
+    mutate(conc_imp = paste0(T_Community_En,"_",F_Sub.District_En)) %>% 
+    left_join(arr, by = "id") %>% 
+    mutate(wrong_imp = ifelse(conc == conc_imp, 0, New.Arrivals..HH.)) %>% 
+    ungroup() %>% 
+    summarise(error_imp = sum(wrong_imp) / sum(New.Arrivals..HH.))
+}
+
+
+cal_comm_knn_com_draft <- function(k,
+                         dist_var,
+                         catFun,
+                         addRandom,
+                         forced = FALSE) {
+  if (forced == TRUE){
+     data <- comm_forced
+  }else{
+    data <- create_comm_na(116)
+  }
+  
+
+  data_imputed <- kNN(data = data,
+               variable = c("F_Sub.District_En"),
+               dist_var = c(dist_var),
+               weights = NULL,
+               k = k,
+               catFun = catFun,
+               addRandom = addRandom)
+  
+  data_imputed %>% 
+    select(F_Sub.District_En,T_Community_En,New.Arrivals..HH.,id,F_Sub.District_En_imp) %>% 
+    filter(F_Sub.District_En_imp == TRUE) %>% 
+    mutate(conc_imp = paste0(T_Community_En,"_",F_Sub.District_En)) %>% 
+    left_join(arr, by = "id") %>% 
+    mutate(wrong_imp = ifelse(conc == conc_imp, 0, New.Arrivals..HH.)) %>% 
+    ungroup() %>% 
+    summarise(error_imp = sum(wrong_imp) / sum(New.Arrivals..HH.))
+}
+
+
+
+
+```
+
+
+
 1) Hotdeck imputation at the community level with one domain.
 
 ```{r}
 
 set.seed(100)
 
-SUBHOTDECK_COM_NULL_NULL <- sapply(1:200, function(i) {cal_comm_hotdeck_sub(order = NULL, 
-                                            domain = NULL)}) %>%
-  unlist() %>%
-  mean()
+# SUBHOTDECK_COM_NULL_NULL <- sapply(1:200, function(i) {cal_comm_hotdeck_sub(order = NULL, 
+#                                             domain = NULL)}) %>%
+#   unlist() %>%
+#   mean()
 
-COMHOTDECK_COM_NULL_NULL <- sapply(1:200, function(i) {cal_comm_hotdeck_com(order = NULL,
+COMHOTDECK_COM_NULL_NULL <- sapply(1:200, function(i) {cal_comm_hotdeck_com_draft(order = NULL,
                                                                             domain = NULL)}) %>% 
   unlist() %>% 
   mean()
@@ -322,12 +416,12 @@ COMHOTDECK_COM_NULL_NULL <- sapply(1:200, function(i) {cal_comm_hotdeck_com(orde
 
 set.seed(100)
 
-SUBHOTDECK_COM_NULL_DIS.ARRIVAL <- sapply(1:200, function(i) {cal_comm_hotdeck_sub(order = NULL, 
-                                            domain = "T_District_En")}) %>%
-  unlist() %>%
-  mean()
+# SUBHOTDECK_COM_NULL_DIS.ARRIVAL <- sapply(1:200, function(i) {cal_comm_hotdeck_sub(order = NULL, 
+#                                             domain = "T_District_En")}) %>%
+#   unlist() %>%
+#   mean()
 
-COMHOTDECK_COM_NULL_DIS.ARRIVAL <- sapply(1:200, function(i) {cal_comm_hotdeck_com(order = NULL, 
+COMHOTDECK_COM_NULL_DIS.ARRIVAL <- sapply(1:200, function(i) {cal_comm_hotdeck_com_draft(order = NULL, 
                                             domain = "T_District_En")}) %>%
   unlist() %>%
   mean()
@@ -340,12 +434,12 @@ COMHOTDECK_COM_NULL_DIS.ARRIVAL <- sapply(1:200, function(i) {cal_comm_hotdeck_c
 
 set.seed(100)
 
-SUBHOTDECK_COM_HH.ARRIVAL_DIS.ARRIVAL <- sapply(1:200, function(i) {cal_comm_hotdeck_sub(order = "New.Arrivals..HH.", 
-                                            domain = "T_District_En")}) %>%
-  unlist() %>%
-  mean()
+# SUBHOTDECK_COM_HH.ARRIVAL_DIS.ARRIVAL <- sapply(1:200, function(i) {cal_comm_hotdeck_sub(order = "New.Arrivals..HH.", 
+#                                             domain = "T_District_En")}) %>%
+#   unlist() %>%
+#   mean()
 
-COMHOTDECK_COM_HH.ARRIVAL_DIS.ARRIVAL <- sapply(1:200, function(i) {cal_comm_hotdeck_com(order = "New.Arrivals..HH.", 
+COMHOTDECK_COM_HH.ARRIVAL_DIS.ARRIVAL <- sapply(1:200, function(i) {cal_comm_hotdeck_com_draft(order = "New.Arrivals..HH.", 
                                             domain = "T_District_En")}) %>%
   unlist() %>%
   mean()
@@ -357,11 +451,11 @@ COMHOTDECK_COM_HH.ARRIVAL_DIS.ARRIVAL <- sapply(1:200, function(i) {cal_comm_hot
 
 set.seed(100)
 
-SUBkNN_COM_100_LAT.LON_SAMPLE_TRUE <- sapply(1:200, function(i) {cal_comm_knn_sub(100, dist_var = c("lat", "long"), catFun = sampleCat, addRandom = TRUE)}) %>%
-  unlist() %>%
-  mean()
+# SUBkNN_COM_100_LAT.LON_SAMPLE_TRUE <- sapply(1:200, function(i) {cal_comm_knn_sub(100, dist_var = c("lat", "long"), catFun = sampleCat, addRandom = TRUE)}) %>%
+#   unlist() %>%
+#   mean()
 
-COMkNN_COM_100_LAT.LON_SAMPLE_TRUE <- sapply(1:200, function(i) {cal_comm_knn_com(100, dist_var = c("lat", "long"), catFun = sampleCat, addRandom = TRUE)}) %>%
+COMkNN_COM_100_LAT.LON_SAMPLE_TRUE <- sapply(1:200, function(i) {cal_comm_knn_com_draft(100, dist_var = c("lat", "long"), catFun = sampleCat, addRandom = TRUE)}) %>%
   unlist() %>%
   mean()
 ```
@@ -369,20 +463,20 @@ COMkNN_COM_100_LAT.LON_SAMPLE_TRUE <- sapply(1:200, function(i) {cal_comm_knn_co
 ```{r}
 #Codes added to export results for paper
 #Creating data frame with all results
-plot1sub <- data.frame(Approach=c("SUBHOTDECK_COM_NULL_NULL","SUBHOTDECK_COM_NULL_DIS.ARRIVAL",
-                                  "SUBHOTDECK_COM_HH.ARRIVAL_DIS.ARRIVAL","SUBkNN_COM_100_LAT.LON_SAMPLE_TRUE"),
-                       Margin_Error = c(SUBHOTDECK_COM_NULL_NULL,SUBHOTDECK_COM_NULL_DIS.ARRIVAL,
-                                        SUBHOTDECK_COM_HH.ARRIVAL_DIS.ARRIVAL,SUBkNN_COM_100_LAT.LON_SAMPLE_TRUE)) %>% 
-  mutate(Margin_Error = round(Margin_Error, 4))
+# plot1sub <- data.frame(Approach=c("SUBHOTDECK_COM_NULL_NULL","SUBHOTDECK_COM_NULL_DIS.ARRIVAL",
+#                                   "SUBHOTDECK_COM_HH.ARRIVAL_DIS.ARRIVAL","SUBkNN_COM_100_LAT.LON_SAMPLE_TRUE"),
+#                        Margin_Error = c(SUBHOTDECK_COM_NULL_NULL,SUBHOTDECK_COM_NULL_DIS.ARRIVAL,
+#                                         SUBHOTDECK_COM_HH.ARRIVAL_DIS.ARRIVAL,SUBkNN_COM_100_LAT.LON_SAMPLE_TRUE)) %>% 
+#   mutate(Margin_Error = round(Margin_Error, 4))
 
-plot1com <- data.frame(Approach=c("COMHOTDECK_COM_NULL_NULL","COMHOTDECK_COM_NULL_DIS.ARRIVAL",
+plot1com_draft <- data.frame(Approach=c("COMHOTDECK_COM_NULL_NULL","COMHOTDECK_COM_NULL_DIS.ARRIVAL",
                                   "COMHOTDECK_COM_HH.ARRIVAL_DIS.ARRIVAL","COMkNN_COM_100_LAT.LON_SAMPLE_TRUE"),
                        Margin_Error = c(COMHOTDECK_COM_NULL_NULL,COMHOTDECK_COM_NULL_DIS.ARRIVAL,
                                         COMHOTDECK_COM_HH.ARRIVAL_DIS.ARRIVAL,COMkNN_COM_100_LAT.LON_SAMPLE_TRUE)) %>% 
   mutate(Margin_Error = round(Margin_Error, 4))
 
-write_xlsx(plot1sub, "output/plot1sub.xlsx")
-write_xlsx(plot1com, "output/plot1com.xlsx")
+# write_xlsx(plot1sub, "output/plot1sub.xlsx")
+write_xlsx(plot1com_draft, "output/plot1com_draft.xlsx")
 ```
 
 
@@ -420,8 +514,11 @@ hh_forced <- arrivals %>%
 arrivals_each <- arrivals %>%
   filter(!is.na(F_Sub.District_En)) %>%
   rowwise() %>%
-  slice(rep(1:n(), each = New.Arrivals..HH.)) 
+  slice(rep(1:n(), each = New.Arrivals..HH.)) %>% 
+  mutate(conc = paste0(T_Community_En,"_",F_Sub.District_En))
 
+arr_each <- arrivals_each %>% 
+  select(id, conc)
 ```
 
 Once again, before we run a lot of simulations, we'll work through just one example.
@@ -433,13 +530,11 @@ Again, generating a single draw.
 set.seed(100)
 
 dat_hh <- create_hh_na(116)
-
-
 ```
 
 We take the same appraoch from 4) above where we take the 100 nearest neighbors. 
 
-```{r}
+```{r eval=FALSE, include=FALSE}
 
 dat_hh_imputed <- kNN(data = dat_hh,
                variable = c("F_Sub.District_En"),
@@ -471,7 +566,7 @@ dat_hh_imputed %>%
     
 ```
 
-```{r}
+```{r eval=FALSE, include=FALSE}
 dat_hh_imputed %>%
   group_by(F_Sub.District_En, original) %>%
   summarize(n = sum(New.Arrivals..HH.)) %>% 
@@ -486,7 +581,7 @@ Now we'll create functions so we can run simulations here with both hotdeck impu
 
 First, the hotdeck function.
 
-```{r}
+```{r eval=FALSE, include=FALSE}
 cal_hh_hotdeck_sub <- function(order, domain, forced = FALSE) {
   if (forced == TRUE){
      data <- hh_forced
@@ -544,7 +639,7 @@ cal_hh_hotdeck_com <- function(order, domain, forced = FALSE) {
 
 Now the KNN function.
 
-```{r}
+```{r eval=FALSE, include=FALSE}
 
 cal_hh_knn_sub <- function(k,
                          dist_var,
@@ -615,17 +710,76 @@ cal_hh_knn_com <- function(k,
 
 ```
 
+```{r}
+cal_hh_hotdeck_com_draft <- function(order, domain, forced = FALSE) {
+  if (forced == TRUE){
+     data <- hh_forced
+  }else{
+    data <- create_hh_na(116)
+  }
+  
+
+  data_imputed <- hotdeck(data = data,
+                          variable = c("F_Sub.District_En"),
+                          ord_var = c(order),
+                          domain_var = c(domain))
+ 
+  data_imputed %>% 
+    select(F_Sub.District_En,T_Community_En,New.Arrivals..HH.,id,F_Sub.District_En_imp) %>% 
+    filter(F_Sub.District_En_imp == TRUE) %>% 
+    mutate(conc_imp = paste0(T_Community_En,"_",F_Sub.District_En)) %>% 
+    left_join(arr_each, by = "id") %>% 
+    mutate(wrong_imp = ifelse(conc == conc_imp, 0, New.Arrivals..HH.)) %>% 
+    ungroup() %>% 
+    summarise(error_imp = sum(wrong_imp) / sum(New.Arrivals..HH.))
+
+}
+
+cal_hh_knn_com_draft <- function(k,
+                         dist_var,
+                         catFun,
+                         addRandom, 
+                         forced = FALSE) {
+  if (forced == TRUE){
+     data <- hh_forced
+  }else{
+    data <- create_hh_na(116)
+  }
+  
+
+  data_imputed <- kNN(data = data,
+               variable = c("F_Sub.District_En"),
+               dist_var = c(dist_var),
+               weights = NULL,
+               k = k,
+               catFun = catFun,
+               addRandom = addRandom)
+  
+  data_imputed %>% 
+    select(F_Sub.District_En,T_Community_En,New.Arrivals..HH.,id,F_Sub.District_En_imp) %>% 
+    filter(F_Sub.District_En_imp == TRUE) %>% 
+    mutate(conc_imp = paste0(T_Community_En,"_",F_Sub.District_En)) %>% 
+    left_join(arr_each, by = "id") %>% 
+    mutate(wrong_imp = ifelse(conc == conc_imp, 0, New.Arrivals..HH.)) %>%  
+    ungroup() %>% 
+    summarise(error_imp = sum(wrong_imp) / sum(New.Arrivals..HH.))
+
+}
+
+```
+
+
 5) KNN imputation at the household level with distance determined by lat and long and the 100 NN's sampled proportionately with random noise added for ties.
 
 ```{r}
 
 set.seed(100)
+# 
+# SUBkNN_HH_100_LAT.LON_SAMPLE_TRUE <- sapply(1:100, function(i) {cal_hh_knn_sub(100, dist_var = c("lat", "long"), catFun = sampleCat, addRandom = TRUE)}) %>%
+#   unlist() %>%
+#   mean()
 
-SUBkNN_HH_100_LAT.LON_SAMPLE_TRUE <- sapply(1:100, function(i) {cal_hh_knn_sub(100, dist_var = c("lat", "long"), catFun = sampleCat, addRandom = TRUE)}) %>%
-  unlist() %>%
-  mean()
-
-COMkNN_HH_100_LAT.LON_SAMPLE_TRUE <- sapply(1:100, function(i) {cal_hh_knn_com(100, dist_var = c("lat", "long"), catFun = sampleCat, addRandom = TRUE)}) %>%
+COMkNN_HH_100_LAT.LON_SAMPLE_TRUE <- sapply(1:100, function(i) {cal_hh_knn_com_draft(100, dist_var = c("lat", "long"), catFun = sampleCat, addRandom = TRUE)}) %>%
   unlist() %>%
   mean()
 
@@ -637,11 +791,11 @@ COMkNN_HH_100_LAT.LON_SAMPLE_TRUE <- sapply(1:100, function(i) {cal_hh_knn_com(1
 
 set.seed(100)
 
-SUBkNN_HH_50_LAT.LON_SAMPLE_TRUE <- sapply(1:100, function(i) {cal_hh_knn_sub(50, dist_var = c("lat", "long"), catFun = sampleCat, addRandom = TRUE)}) %>%
-  unlist() %>%
-  mean()
+# SUBkNN_HH_50_LAT.LON_SAMPLE_TRUE <- sapply(1:100, function(i) {cal_hh_knn_sub(50, dist_var = c("lat", "long"), catFun = sampleCat, addRandom = TRUE)}) %>%
+#   unlist() %>%
+#   mean()
 
-COMkNN_HH_50_LAT.LON_SAMPLE_TRUE <- sapply(1:100, function(i) {cal_hh_knn_com(50, dist_var = c("lat", "long"), catFun = sampleCat, addRandom = TRUE)}) %>%
+COMkNN_HH_50_LAT.LON_SAMPLE_TRUE <- sapply(1:100, function(i) {cal_hh_knn_com_draft(50, dist_var = c("lat", "long"), catFun = sampleCat, addRandom = TRUE)}) %>%
   unlist() %>%
   mean()
 
@@ -653,11 +807,11 @@ COMkNN_HH_50_LAT.LON_SAMPLE_TRUE <- sapply(1:100, function(i) {cal_hh_knn_com(50
 
 set.seed(100)
 
-SUBkNN_HH_200_LAT.LON_SAMPLE_TRUE <- sapply(1:100, function(i) {cal_hh_knn_sub(200, dist_var = c("lat", "long"), catFun = sampleCat, addRandom = TRUE)}) %>%
-  unlist() %>%
-  mean()
+# SUBkNN_HH_200_LAT.LON_SAMPLE_TRUE <- sapply(1:100, function(i) {cal_hh_knn_sub(200, dist_var = c("lat", "long"), catFun = sampleCat, addRandom = TRUE)}) %>%
+#   unlist() %>%
+#   mean()
 
-COMkNN_HH_200_LAT.LON_SAMPLE_TRUE <- sapply(1:100, function(i) {cal_hh_knn_com(200, dist_var = c("lat", "long"), catFun = sampleCat, addRandom = TRUE)}) %>%
+COMkNN_HH_200_LAT.LON_SAMPLE_TRUE <- sapply(1:100, function(i) {cal_hh_knn_com_draft(200, dist_var = c("lat", "long"), catFun = sampleCat, addRandom = TRUE)}) %>%
   unlist() %>%
   mean()
 
@@ -666,36 +820,37 @@ COMkNN_HH_200_LAT.LON_SAMPLE_TRUE <- sapply(1:100, function(i) {cal_hh_knn_com(2
 ```{r}
 #Codes added to export results for paper
 #Creating data frame with all results
-plot2sub <- data.frame(Approach=c("SUBkNN_HH_50_LAT.LON_SAMPLE_TRUE","SUBkNN_HH_100_LAT.LON_SAMPLE_TRUE",
-                                  "SUBkNN_HH_200_LAT.LON_SAMPLE_TRUE"),
-                       Margin_Error = c(SUBkNN_HH_50_LAT.LON_SAMPLE_TRUE,SUBkNN_HH_100_LAT.LON_SAMPLE_TRUE,
-                                        SUBkNN_HH_200_LAT.LON_SAMPLE_TRUE)) %>% 
-  mutate(Margin_Error = round(Margin_Error, 4))
+# plot2sub <- data.frame(Approach=c("SUBkNN_HH_50_LAT.LON_SAMPLE_TRUE","SUBkNN_HH_100_LAT.LON_SAMPLE_TRUE",
+#                                   "SUBkNN_HH_200_LAT.LON_SAMPLE_TRUE"),
+#                        Margin_Error = c(SUBkNN_HH_50_LAT.LON_SAMPLE_TRUE,SUBkNN_HH_100_LAT.LON_SAMPLE_TRUE,
+#                                         SUBkNN_HH_200_LAT.LON_SAMPLE_TRUE)) %>% 
+#   mutate(Margin_Error = round(Margin_Error, 4))
 
-plot2com <- data.frame(Approach=c("COMkNN_HH_50_LAT.LON_SAMPLE_TRUE","COMkNN_HH_100_LAT.LON_SAMPLE_TRUE",
+plot2com_draft <- data.frame(Approach=c("COMkNN_HH_50_LAT.LON_SAMPLE_TRUE","COMkNN_HH_100_LAT.LON_SAMPLE_TRUE",
                                   "COMkNN_HH_200_LAT.LON_SAMPLE_TRUE"),
                        Margin_Error = c(COMkNN_HH_50_LAT.LON_SAMPLE_TRUE,COMkNN_HH_100_LAT.LON_SAMPLE_TRUE,COMkNN_HH_200_LAT.LON_SAMPLE_TRUE)) %>% 
   mutate(Margin_Error = round(Margin_Error, 4))
 
-write_xlsx(plot2sub, "output/plot2sub.xlsx")
-write_xlsx(plot2com, "output/plot2com.xlsx")
+# write_xlsx(plot2sub, "output/plot2sub.xlsx")
+write_xlsx(plot2com_draft, "output/plot2com_draft.xlsx")
 ```
 
 200 nearest neighbors seems adequate so I'll work with this and try tweaking a few other variables.
 
 8) KNN imputation at the household level with distance determined by lat, long, and hh arrivals the 200 NN's sampled proportionately with random noise added for ties.
 
+## RUN from here tomorrow 
 ```{r}
 
 set.seed(100)
 
-SUBkNN_HH_200_LAT.LON.HH_SAMPLE_TRUE <- sapply(1:200, function(i) {
-  cal_hh_knn_sub(200, dist_var = c("lat", "long", "New.Arrivals..HH."), catFun = sampleCat, addRandom = TRUE)}) %>%
-  unlist() %>%
-  mean()
+# SUBkNN_HH_200_LAT.LON.HH_SAMPLE_TRUE <- sapply(1:200, function(i) {
+#   cal_hh_knn_sub(200, dist_var = c("lat", "long", "New.Arrivals..HH."), catFun = sampleCat, addRandom = TRUE)}) %>%
+#   unlist() %>%
+#   mean()
 
-COMkNN_HH_200_LAT.LON.HH_SAMPLE_TRUE <- sapply(1:200, function(i) {
-  cal_hh_knn_com(200, dist_var = c("lat", "long", "New.Arrivals..HH."), catFun = sampleCat, addRandom = TRUE)}) %>%
+COMkNN_HH_50_LAT.LON.HH_SAMPLE_TRUE <- sapply(1:200, function(i) {
+  cal_hh_knn_com(50, dist_var = c("lat", "long", "New.Arrivals..HH."), catFun = sampleCat, addRandom = TRUE, forced = TRUE)}) %>%
   unlist() %>%
   mean()
 
@@ -709,13 +864,13 @@ Adding HH arrivals decreased the accuracy of our predictions.
 
 set.seed(100)
 
-SUBkNN_HH_200_LAT.LON_MAX_TRUE <- sapply(1:200, function(i) {
-  cal_hh_knn_sub(200, dist_var = c("lat", "long"), catFun = maxCat, addRandom = TRUE)}) %>%
-  unlist() %>%
-  mean()
+# SUBkNN_HH_200_LAT.LON_MAX_TRUE <- sapply(1:200, function(i) {
+#   cal_hh_knn_sub(200, dist_var = c("lat", "long"), catFun = maxCat, addRandom = TRUE)}) %>%
+#   unlist() %>%
+#   mean()
 
-COMkNN_HH_200_LAT.LON_MAX_TRUE <- sapply(1:200, function(i) {
-  cal_hh_knn_com(200, dist_var = c("lat", "long"), catFun = maxCat, addRandom = TRUE)}) %>%
+COMkNN_HH_50_LAT.LON_MAX_TRUE <- sapply(1:200, function(i) {
+  cal_hh_knn_com(50, dist_var = c("lat", "long"), catFun = maxCat, addRandom = TRUE, forced = TRUE)}) %>%
   unlist() %>%
   mean()
 
@@ -729,13 +884,13 @@ As expected, this is significantly worse.
 
 set.seed(100)
 
-SUBkNN_HH_200_LAT.LON_SAMPLE_FALSE <- sapply(1:200, function(i) {
-  cal_hh_knn_sub(200, dist_var = c("lat", "long"), catFun = sampleCat, addRandom = FALSE)}) %>%
-  unlist() %>%
-  mean()
+# SUBkNN_HH_200_LAT.LON_SAMPLE_FALSE <- sapply(1:200, function(i) {
+#   cal_hh_knn_sub(200, dist_var = c("lat", "long"), catFun = sampleCat, addRandom = FALSE)}) %>%
+#   unlist() %>%
+#   mean()
 
-COMkNN_HH_200_LAT.LON_SAMPLE_FALSE <- sapply(1:200, function(i) {
-  cal_hh_knn_com(200, dist_var = c("lat", "long"), catFun = sampleCat, addRandom = FALSE)}) %>%
+COMkNN_HH_50_LAT.LON_SAMPLE_FALSE <- sapply(1:200, function(i) {
+  cal_hh_knn_com(50, dist_var = c("lat", "long"), catFun = sampleCat, addRandom = FALSE, forced = TRUE)}) %>%
   unlist() %>%
   mean()
 
@@ -744,20 +899,20 @@ COMkNN_HH_200_LAT.LON_SAMPLE_FALSE <- sapply(1:200, function(i) {
 ```{r}
 #Codes added to export results for paper
 #Creating data frame with all results
-plot3sub <- data.frame(Approach=c("SUBkNN_HH_200_LAT.LON.HH_SAMPLE_TRUE","SUBkNN_HH_200_LAT.LON_MAX_TRUE",
-                               "SUBkNN_HH_200_LAT.LON_SAMPLE_FALSE"),
-                    Margin_Error = c(SUBkNN_HH_200_LAT.LON.HH_SAMPLE_TRUE,SUBkNN_HH_200_LAT.LON_MAX_TRUE,
-                                     SUBkNN_HH_200_LAT.LON_SAMPLE_FALSE)) %>% 
+# plot3sub <- data.frame(Approach=c("SUBkNN_HH_200_LAT.LON.HH_SAMPLE_TRUE","SUBkNN_HH_200_LAT.LON_MAX_TRUE",
+#                                "SUBkNN_HH_200_LAT.LON_SAMPLE_FALSE"),
+#                     Margin_Error = c(SUBkNN_HH_200_LAT.LON.HH_SAMPLE_TRUE,SUBkNN_HH_200_LAT.LON_MAX_TRUE,
+#                                      SUBkNN_HH_200_LAT.LON_SAMPLE_FALSE)) %>% 
+#   mutate(Margin_Error = round(Margin_Error, 4))
+
+plot3comforced <- data.frame(Approach=c("COMkNN_HH_50_LAT.LON.HH_SAMPLE_TRUE","COMkNN_HH_50_LAT.LON_MAX_TRUE",
+                                  "COMkNN_HH_50_LAT.LON_SAMPLE_FALSE"),
+                       Margin_Error = c(COMkNN_HH_50_LAT.LON.HH_SAMPLE_TRUE,COMkNN_HH_50_LAT.LON_MAX_TRUE,
+                                        COMkNN_HH_50_LAT.LON_SAMPLE_FALSE)) %>% 
   mutate(Margin_Error = round(Margin_Error, 4))
 
-plot3com <- data.frame(Approach=c("COMkNN_HH_200_LAT.LON.HH_SAMPLE_TRUE","COMkNN_HH_200_LAT.LON_MAX_TRUE",
-                                  "COMkNN_HH_200_LAT.LON_SAMPLE_FALSE"),
-                       Margin_Error = c(COMkNN_HH_200_LAT.LON.HH_SAMPLE_TRUE,COMkNN_HH_200_LAT.LON_MAX_TRUE,
-                                        COMkNN_HH_200_LAT.LON_SAMPLE_FALSE)) %>% 
-  mutate(Margin_Error = round(Margin_Error, 4))
-
-write_xlsx(plot3sub, "output/plot3sub.xlsx")
-write_xlsx(plot3com, "output/plot3com.xlsx")
+# write_xlsx(plot3sub, "output/plot3sub.xlsx")
+write_xlsx(plot3comforced, "output/plot3comforced.xlsx")
 ```
 
 11) Hotdeck imputation at the household level with one domain.
@@ -766,12 +921,12 @@ write_xlsx(plot3com, "output/plot3com.xlsx")
 
 set.seed(100)
 
-SUBHOTDECK_HH_NULL_NULL <- sapply(1:200, function(i) {cal_hh_hotdeck_sub(order = NULL, 
-                                            domain = NULL)}) %>%
-  unlist() %>%
-  mean()
+# SUBHOTDECK_HH_NULL_NULL <- sapply(1:200, function(i) {cal_hh_hotdeck_sub(order = NULL, 
+#                                             domain = NULL)}) %>%
+#   unlist() %>%
+#   mean()
 
-COMHOTDECK_HH_NULL_NULL <- sapply(1:200, function(i) {cal_hh_hotdeck_com(order = NULL, 
+COMHOTDECK_HH_NULL_NULL <- sapply(1:200, function(i) {cal_hh_hotdeck_com_draft(order = NULL, 
                                             domain = NULL)}) %>%
   unlist() %>%
   mean()
@@ -783,13 +938,13 @@ COMHOTDECK_HH_NULL_NULL <- sapply(1:200, function(i) {cal_hh_hotdeck_com(order =
 ```{r}
 
 set.seed(100)
+# 
+# SUBHOTDECK_HH_NULL_DIS.ARRIVAL <- sapply(1:200, function(i) {cal_hh_hotdeck_sub(order = NULL, 
+#                                             domain = "T_District_En")}) %>%
+#   unlist() %>%
+#   mean()
 
-SUBHOTDECK_HH_NULL_DIS.ARRIVAL <- sapply(1:200, function(i) {cal_hh_hotdeck_sub(order = NULL, 
-                                            domain = "T_District_En")}) %>%
-  unlist() %>%
-  mean()
-
-COMHOTDECK_HH_NULL_DIS.ARRIVAL <- sapply(1:200, function(i) {cal_hh_hotdeck_com(order = NULL, 
+COMHOTDECK_HH_NULL_DIS.ARRIVAL <- sapply(1:200, function(i) {cal_hh_hotdeck_com_draft(order = NULL, 
                                             domain = "T_District_En")}) %>%
   unlist() %>%
   mean()
@@ -802,12 +957,12 @@ COMHOTDECK_HH_NULL_DIS.ARRIVAL <- sapply(1:200, function(i) {cal_hh_hotdeck_com(
 
 set.seed(100)
 
-SUBHOTDECK_HH_HH.ARRIVAL_DIS.ARRIVAL <- sapply(1:200, function(i) {cal_hh_hotdeck_sub(order = "New.Arrivals..HH.", 
-                                            domain = "T_District_En")}) %>%
-  unlist() %>%
-  mean()
+# SUBHOTDECK_HH_HH.ARRIVAL_DIS.ARRIVAL <- sapply(1:200, function(i) {cal_hh_hotdeck_sub(order = "New.Arrivals..HH.", 
+#                                             domain = "T_District_En")}) %>%
+#   unlist() %>%
+#   mean()
 
-COMHOTDECK_HH_HH.ARRIVAL_DIS.ARRIVAL <- sapply(1:200, function(i) {cal_hh_hotdeck_com(order = "New.Arrivals..HH.", 
+COMHOTDECK_HH_HH.ARRIVAL_DIS.ARRIVAL <- sapply(1:200, function(i) {cal_hh_hotdeck_com_draft(order = "New.Arrivals..HH.", 
                                             domain = "T_District_En")}) %>%
   unlist() %>%
   mean()
@@ -817,16 +972,16 @@ COMHOTDECK_HH_HH.ARRIVAL_DIS.ARRIVAL <- sapply(1:200, function(i) {cal_hh_hotdec
 ```{r}
 #Codes added to export results for paper
 #Creating data frame with all results
-plot4sub <- data.frame(Approach=c("SUBHOTDECK_HH_NULL_NULL","SUBHOTDECK_HH_NULL_DIS.ARRIVAL","SUBHOTDECK_HH_HH.ARRIVAL_DIS.ARRIVAL"),
-                       Margin_Error = c(SUBHOTDECK_HH_NULL_NULL,SUBHOTDECK_HH_NULL_DIS.ARRIVAL,SUBHOTDECK_HH_HH.ARRIVAL_DIS.ARRIVAL)) %>% 
-  mutate(Margin_Error = round(Margin_Error, 4))
+# plot4sub <- data.frame(Approach=c("SUBHOTDECK_HH_NULL_NULL","SUBHOTDECK_HH_NULL_DIS.ARRIVAL","SUBHOTDECK_HH_HH.ARRIVAL_DIS.ARRIVAL"),
+#                        Margin_Error = c(SUBHOTDECK_HH_NULL_NULL,SUBHOTDECK_HH_NULL_DIS.ARRIVAL,SUBHOTDECK_HH_HH.ARRIVAL_DIS.ARRIVAL)) %>% 
+#   mutate(Margin_Error = round(Margin_Error, 4))
 
-plot4com <- data.frame(Approach=c("COMHOTDECK_HH_NULL_NULL","COMHOTDECK_HH_NULL_DIS.ARRIVAL","COMHOTDECK_HH_HH.ARRIVAL_DIS.ARRIVAL"), 
+plot4com_draft <- data.frame(Approach=c("COMHOTDECK_HH_NULL_NULL","COMHOTDECK_HH_NULL_DIS.ARRIVAL","COMHOTDECK_HH_HH.ARRIVAL_DIS.ARRIVAL"), 
                        Margin_Error = c(COMHOTDECK_HH_NULL_NULL,COMHOTDECK_HH_NULL_DIS.ARRIVAL,COMHOTDECK_HH_HH.ARRIVAL_DIS.ARRIVAL)) %>% 
   mutate(Margin_Error = round(Margin_Error, 4))
 
-write_xlsx(plot4sub, "output/plot4sub.xlsx")
-write_xlsx(plot4com, "output/plot4com.xlsx")
+# write_xlsx(plot4sub, "output/plot4sub.xlsx")
+write_xlsx(plot4com_draft, "output/plot4com_draft.xlsx")
 ```
 So this is what we seem to see:
 
@@ -839,15 +994,15 @@ Adding random noise is helpful. Sampling form the nearest neighbors is much bett
 On the whole, though, most of the different approaches I've taken here yield results that are more or less similar.
 
 # Forced random to areas were NA is distributed in Decemebr 2020
-```{r}
+```{r eval=FALSE, include=FALSE}
 set.seed(100)
 
-SUBHOTDECK_COM_NULL_NULL <- sapply(1:200, function(i) {cal_comm_hotdeck_sub(order = NULL, 
-                                            domain = NULL, forced = TRUE)}) %>%
-  unlist() %>%
-  mean()
+# SUBHOTDECK_COM_NULL_NULL_F <- sapply(1:200, function(i) {cal_comm_hotdeck_sub(order = NULL, 
+#                                             domain = NULL, forced = TRUE)}) %>%
+#   unlist() %>%
+#   mean()
 
-COMHOTDECK_COM_NULL_NULL <- sapply(1:200, function(i) {cal_comm_hotdeck_com(order = NULL,
+COMHOTDECK_COM_NULL_NULL_F <- sapply(1:200, function(i) {cal_comm_hotdeck_com_draft(order = NULL,
                                                                             domain = NULL,
                                                                             forced = TRUE)}) %>% 
   unlist() %>% 
@@ -855,51 +1010,51 @@ COMHOTDECK_COM_NULL_NULL <- sapply(1:200, function(i) {cal_comm_hotdeck_com(orde
 
 set.seed(100)
 
-SUBHOTDECK_COM_NULL_DIS.ARRIVAL <- sapply(1:200, function(i) {cal_comm_hotdeck_sub(order = NULL, 
-                                            domain = "T_District_En",forced = TRUE)}) %>%
-  unlist() %>%
-  mean()
+# SUBHOTDECK_COM_NULL_DIS.ARRIVAL_F <- sapply(1:200, function(i) {cal_comm_hotdeck_sub(order = NULL, 
+#                                             domain = "T_District_En",forced = TRUE)}) %>%
+#   unlist() %>%
+#   mean()
 
-COMHOTDECK_COM_NULL_DIS.ARRIVAL <- sapply(1:200, function(i) {cal_comm_hotdeck_com(order = NULL, 
-                                            domain = "T_District_En",forced = TRUE)}) %>%
-  unlist() %>%
-  mean()
-
-set.seed(100)
-
-SUBHOTDECK_COM_HH.ARRIVAL_DIS.ARRIVAL <- sapply(1:200, function(i) {cal_comm_hotdeck_sub(order = "New.Arrivals..HH.", 
-                                            domain = "T_District_En",forced = TRUE)}) %>%
-  unlist() %>%
-  mean()
-
-COMHOTDECK_COM_HH.ARRIVAL_DIS.ARRIVAL <- sapply(1:200, function(i) {cal_comm_hotdeck_com(order = "New.Arrivals..HH.", 
+COMHOTDECK_COM_NULL_DIS.ARRIVAL_F <- sapply(1:200, function(i) {cal_comm_hotdeck_com_draft(order = NULL, 
                                             domain = "T_District_En",forced = TRUE)}) %>%
   unlist() %>%
   mean()
 
 set.seed(100)
 
-SUBkNN_COM_100_LAT.LON_SAMPLE_TRUE <- sapply(1:200, function(i) {cal_comm_knn_sub(100, dist_var = c("lat", "long"),
+# SUBHOTDECK_COM_HH.ARRIVAL_DIS.ARRIVAL_F <- sapply(1:200, function(i) {cal_comm_hotdeck_sub(order = "New.Arrivals..HH.", 
+#                                             domain = "T_District_En",forced = TRUE)}) %>%
+#   unlist() %>%
+#   mean()
+
+COMHOTDECK_COM_HH.ARRIVAL_DIS.ARRIVAL_F <- sapply(1:200, function(i) {cal_comm_hotdeck_com_draft(order = "New.Arrivals..HH.", 
+                                            domain = "T_District_En",forced = TRUE)}) %>%
+  unlist() %>%
+  mean()
+
+set.seed(100)
+
+# SUBkNN_COM_100_LAT.LON_SAMPLE_TRUE_F <- sapply(1:200, function(i) {cal_comm_knn_sub(100, dist_var = c("lat", "long"),
+#                                                                                   catFun = sampleCat, addRandom = TRUE,
+#                                                                                   forced = TRUE)}) %>%
+#   unlist() %>%
+#   mean()
+
+COMkNN_COM_100_LAT.LON_SAMPLE_TRUE_F <- sapply(1:200, function(i) {cal_comm_knn_com_draft(100, dist_var = c("lat", "long"),
                                                                                   catFun = sampleCat, addRandom = TRUE,
                                                                                   forced = TRUE)}) %>%
   unlist() %>%
   mean()
 
-COMkNN_COM_100_LAT.LON_SAMPLE_TRUE <- sapply(1:200, function(i) {cal_comm_knn_com(100, dist_var = c("lat", "long"),
-                                                                                  catFun = sampleCat, addRandom = TRUE,
-                                                                                  forced = TRUE)}) %>%
-  unlist() %>%
-  mean()
-
 set.seed(100)
 
-SUBkNN_HH_100_LAT.LON_SAMPLE_TRUE <- sapply(1:100, function(i) {cal_hh_knn_sub(100, dist_var = c("lat", "long"),
-                                                                               catFun = sampleCat, addRandom = TRUE,
-                                                                               forced = TRUE)}) %>%
-  unlist() %>%
-  mean()
+# SUBkNN_HH_100_LAT.LON_SAMPLE_TRUE_F <- sapply(1:100, function(i) {cal_hh_knn_sub(100, dist_var = c("lat", "long"),
+#                                                                                catFun = sampleCat, addRandom = TRUE,
+#                                                                                forced = TRUE)}) %>%
+#   unlist() %>%
+#   mean()
 
-COMkNN_HH_100_LAT.LON_SAMPLE_TRUE <- sapply(1:100, function(i) {cal_hh_knn_com(100, dist_var = c("lat", "long"),
+COMkNN_HH_100_LAT.LON_SAMPLE_TRUE_F <- sapply(1:100, function(i) {cal_hh_knn_com_draft(100, dist_var = c("lat", "long"),
                                                                                catFun = sampleCat, addRandom = TRUE,
                                                                                forced = TRUE)}) %>%
   unlist() %>%
@@ -907,13 +1062,13 @@ COMkNN_HH_100_LAT.LON_SAMPLE_TRUE <- sapply(1:100, function(i) {cal_hh_knn_com(1
 
 set.seed(100)
 
-SUBkNN_HH_50_LAT.LON_SAMPLE_TRUE <- sapply(1:100, function(i) {cal_hh_knn_sub(50, dist_var = c("lat", "long"),
-                                                                              catFun = sampleCat, addRandom = TRUE,
-                                                                              forced = TRUE)}) %>%
-  unlist() %>%
-  mean()
+# SUBkNN_HH_50_LAT.LON_SAMPLE_TRUE_F <- sapply(1:100, function(i) {cal_hh_knn_sub(50, dist_var = c("lat", "long"),
+#                                                                               catFun = sampleCat, addRandom = TRUE,
+#                                                                               forced = TRUE)}) %>%
+#   unlist() %>%
+#   mean()
 
-COMkNN_HH_50_LAT.LON_SAMPLE_TRUE <- sapply(1:100, function(i) {cal_hh_knn_com(50, dist_var = c("lat", "long"),
+COMkNN_HH_50_LAT.LON_SAMPLE_TRUE_F <- sapply(1:100, function(i) {cal_hh_knn_com_draft(50, dist_var = c("lat", "long"),
                                                                               catFun = sampleCat, addRandom = TRUE,
                                                                               forced = TRUE)}) %>%
   unlist() %>%
@@ -921,150 +1076,154 @@ COMkNN_HH_50_LAT.LON_SAMPLE_TRUE <- sapply(1:100, function(i) {cal_hh_knn_com(50
 
 set.seed(100)
 
-SUBkNN_HH_200_LAT.LON_SAMPLE_TRUE <- sapply(1:100, function(i) {cal_hh_knn_sub(200, dist_var = c("lat", "long"),
+# SUBkNN_HH_200_LAT.LON_SAMPLE_TRUE_F <- sapply(1:100, function(i) {cal_hh_knn_sub(200, dist_var = c("lat", "long"),
+#                                                                                catFun = sampleCat, addRandom = TRUE,
+#                                                                                forced = TRUE)}) %>%
+#   unlist() %>%
+#   mean()
+
+COMkNN_HH_200_LAT.LON_SAMPLE_TRUE_F <- sapply(1:100, function(i) {cal_hh_knn_com_draft(200, dist_var = c("lat", "long"),
                                                                                catFun = sampleCat, addRandom = TRUE,
                                                                                forced = TRUE)}) %>%
   unlist() %>%
   mean()
 
-COMkNN_HH_200_LAT.LON_SAMPLE_TRUE <- sapply(1:100, function(i) {cal_hh_knn_com(200, dist_var = c("lat", "long"),
-                                                                               catFun = sampleCat, addRandom = TRUE,
-                                                                               forced = TRUE)}) %>%
+set.seed(100)
+
+# SUBkNN_HH_200_LAT.LON.HH_SAMPLE_TRUE_F <- sapply(1:200, function(i) {
+#   cal_hh_knn_sub(200, dist_var = c("lat", "long", "New.Arrivals..HH."), catFun = sampleCat, addRandom = TRUE,
+#                  forced = TRUE)}) %>%
+#   unlist() %>%
+#   mean()
+
+##RUN here tomorrow
+COMkNN_HH_50_LAT.LON.HH_SAMPLE_TRUE_F <- sapply(1:200, function(i) {
+  cal_hh_knn_com_draft(50, dist_var = c("lat", "long", "New.Arrivals..HH."), catFun = sampleCat, addRandom = TRUE,
+                 forced = FALSE)}) %>%
   unlist() %>%
   mean()
 
 set.seed(100)
 
-SUBkNN_HH_200_LAT.LON.HH_SAMPLE_TRUE <- sapply(1:200, function(i) {
-  cal_hh_knn_sub(200, dist_var = c("lat", "long", "New.Arrivals..HH."), catFun = sampleCat, addRandom = TRUE,
-                 forced = TRUE)}) %>%
-  unlist() %>%
-  mean()
+# SUBkNN_HH_200_LAT.LON_MAX_TRUE_F <- sapply(1:200, function(i) {
+#   cal_hh_knn_sub(200, dist_var = c("lat", "long"), catFun = maxCat, addRandom = TRUE,forced = TRUE)}) %>%
+#   unlist() %>%
+#   mean()
 
-COMkNN_HH_200_LAT.LON.HH_SAMPLE_TRUE <- sapply(1:200, function(i) {
-  cal_hh_knn_com(200, dist_var = c("lat", "long", "New.Arrivals..HH."), catFun = sampleCat, addRandom = TRUE,
-                 forced = TRUE)}) %>%
-  unlist() %>%
-  mean()
-
-set.seed(100)
-
-SUBkNN_HH_200_LAT.LON_MAX_TRUE <- sapply(1:200, function(i) {
-  cal_hh_knn_sub(200, dist_var = c("lat", "long"), catFun = maxCat, addRandom = TRUE,forced = TRUE)}) %>%
-  unlist() %>%
-  mean()
-
-COMkNN_HH_200_LAT.LON_MAX_TRUE <- sapply(1:200, function(i) {
-  cal_hh_knn_com(200, dist_var = c("lat", "long"), catFun = maxCat, addRandom = TRUE,forced = TRUE)}) %>%
+COMkNN_HH_50_LAT.LON_MAX_TRUE_F <- sapply(1:200, function(i) {
+  cal_hh_knn_com_draft(50, dist_var = c("lat", "long"), catFun = maxCat, addRandom = TRUE,forced = FALSE)}) %>%
   unlist() %>%
   mean()
 
 set.seed(100)
 
-SUBkNN_HH_200_LAT.LON_SAMPLE_FALSE <- sapply(1:200, function(i) {
-  cal_hh_knn_sub(200, dist_var = c("lat", "long"), catFun = sampleCat, addRandom = FALSE,forced = TRUE)}) %>%
-  unlist() %>%
-  mean()
+# SUBkNN_HH_200_LAT.LON_SAMPLE_FALSE_F <- sapply(1:200, function(i) {
+#   cal_hh_knn_sub(200, dist_var = c("lat", "long"), catFun = sampleCat, addRandom = FALSE,forced = TRUE)}) %>%
+#   unlist() %>%
+#   mean()
 
-COMkNN_HH_200_LAT.LON_SAMPLE_FALSE <- sapply(1:200, function(i) {
-  cal_hh_knn_com(200, dist_var = c("lat", "long"), catFun = sampleCat, addRandom = FALSE, forced = TRUE)}) %>%
+COMkNN_HH_50_LAT.LON_SAMPLE_FALSE_F <- sapply(1:200, function(i) {
+  cal_hh_knn_com_draft(50, dist_var = c("lat", "long"), catFun = sampleCat, addRandom = FALSE, forced = FALSE)}) %>%
   unlist() %>%
   mean()
 
 set.seed(100)
 
-SUBHOTDECK_HH_NULL_NULL <- sapply(1:200, function(i) {cal_hh_hotdeck_sub(order = NULL, 
-                                            domain = NULL,forced = TRUE)}) %>%
-  unlist() %>%
-  mean()
+# SUBHOTDECK_HH_NULL_NULL_F <- sapply(1:200, function(i) {cal_hh_hotdeck_sub(order = NULL, 
+#                                             domain = NULL,forced = TRUE)}) %>%
+#   unlist() %>%
+#   mean()
 
-COMHOTDECK_HH_NULL_NULL <- sapply(1:200, function(i) {cal_hh_hotdeck_com(order = NULL, 
+COMHOTDECK_HH_NULL_NULL_F <- sapply(1:200, function(i) {cal_hh_hotdeck_com_draft(order = NULL, 
                                             domain = NULL,forced = TRUE)}) %>%
   unlist() %>%
   mean()
 
 set.seed(100)
 
-SUBHOTDECK_HH_NULL_DIS.ARRIVAL <- sapply(1:200, function(i) {cal_hh_hotdeck_sub(order = NULL, 
-                                            domain = "T_District_En",forced = TRUE)}) %>%
-  unlist() %>%
-  mean()
+# SUBHOTDECK_HH_NULL_DIS.ARRIVAL_F <- sapply(1:200, function(i) {cal_hh_hotdeck_sub(order = NULL, 
+#                                             domain = "T_District_En",forced = TRUE)}) %>%
+#   unlist() %>%
+#   mean()
 
-COMHOTDECK_HH_NULL_DIS.ARRIVAL <- sapply(1:200, function(i) {cal_hh_hotdeck_com(order = NULL, 
+COMHOTDECK_HH_NULL_DIS.ARRIVAL_F <- sapply(1:200, function(i) {cal_hh_hotdeck_com_draft(order = NULL, 
                                             domain = "T_District_En",forced = TRUE)}) %>%
   unlist() %>%
   mean()
 
 set.seed(100)
 
-SUBHOTDECK_HH_HH.ARRIVAL_DIS.ARRIVAL <- sapply(1:200, function(i) {cal_hh_hotdeck_sub(order = "New.Arrivals..HH.", 
-                                            domain = "T_District_En",forced = TRUE)}) %>%
-  unlist() %>%
-  mean()
+# SUBHOTDECK_HH_HH.ARRIVAL_DIS.ARRIVAL_F <- sapply(1:200, function(i) {cal_hh_hotdeck_sub_draft(order = "New.Arrivals..HH.", 
+#                                             domain = "T_District_En",forced = TRUE)}) %>%
+#   unlist() %>%
+#   mean()
 
-COMHOTDECK_HH_HH.ARRIVAL_DIS.ARRIVAL <- sapply(1:200, function(i) {cal_hh_hotdeck_com(order = "New.Arrivals..HH.", 
+COMHOTDECK_HH_HH.ARRIVAL_DIS.ARRIVAL_F <- sapply(1:200, function(i) {cal_hh_hotdeck_com_draft(order = "New.Arrivals..HH.", 
                                             domain = "T_District_En",forced = TRUE)}) %>%
   unlist() %>%
   mean()
 ```
 
 ```{r}
-plot1subforced <- data.frame(Approach=c("SUBHOTDECK_COM_NULL_NULL","SUBHOTDECK_COM_NULL_DIS.ARRIVAL",
-                                  "SUBHOTDECK_COM_HH.ARRIVAL_DIS.ARRIVAL","SUBkNN_COM_100_LAT.LON_SAMPLE_TRUE"),
-                       Margin_Error = c(SUBHOTDECK_COM_NULL_NULL,SUBHOTDECK_COM_NULL_DIS.ARRIVAL,
-                                        SUBHOTDECK_COM_HH.ARRIVAL_DIS.ARRIVAL,SUBkNN_COM_100_LAT.LON_SAMPLE_TRUE)) %>% 
+# plot1subforced <- data.frame(Approach=c("SUBHOTDECK_COM_NULL_NULL","SUBHOTDECK_COM_NULL_DIS.ARRIVAL",
+#                                   "SUBHOTDECK_COM_HH.ARRIVAL_DIS.ARRIVAL","SUBkNN_COM_100_LAT.LON_SAMPLE_TRUE"),
+#                        Margin_Error = c(SUBHOTDECK_COM_NULL_NULL,SUBHOTDECK_COM_NULL_DIS.ARRIVAL,
+#                                         SUBHOTDECK_COM_HH.ARRIVAL_DIS.ARRIVAL,SUBkNN_COM_100_LAT.LON_SAMPLE_TRUE)) %>% 
+#   mutate(Margin_Error = round(Margin_Error, 4))
+
+plot1com_draft_f <- data.frame(Approach=c("COMHOTDECK_COM_NULL_NULL_F","COMHOTDECK_COM_NULL_DIS.ARRIVAL_F",
+                                  "COMHOTDECK_COM_HH.ARRIVAL_DIS.ARRIVAL_F","COMkNN_COM_100_LAT.LON_SAMPLE_TRUE_F"),
+                       Margin_Error = c(COMHOTDECK_COM_NULL_NULL_F,COMHOTDECK_COM_NULL_DIS.ARRIVAL_F,
+                                        COMHOTDECK_COM_HH.ARRIVAL_DIS.ARRIVAL_F,COMkNN_COM_100_LAT.LON_SAMPLE_TRUE_F)) %>% 
   mutate(Margin_Error = round(Margin_Error, 4))
 
-plot1comforced <- data.frame(Approach=c("COMHOTDECK_COM_NULL_NULL","COMHOTDECK_COM_NULL_DIS.ARRIVAL",
-                                  "COMHOTDECK_COM_HH.ARRIVAL_DIS.ARRIVAL","COMkNN_COM_100_LAT.LON_SAMPLE_TRUE"),
-                       Margin_Error = c(COMHOTDECK_COM_NULL_NULL,COMHOTDECK_COM_NULL_DIS.ARRIVAL,
-                                        COMHOTDECK_COM_HH.ARRIVAL_DIS.ARRIVAL,COMkNN_COM_100_LAT.LON_SAMPLE_TRUE)) %>% 
+
+# plot2subforced <- data.frame(Approach=c("SUBkNN_HH_50_LAT.LON_SAMPLE_TRUE","SUBkNN_HH_100_LAT.LON_SAMPLE_TRUE",
+#                                   "SUBkNN_HH_200_LAT.LON_SAMPLE_TRUE"),
+#                        Margin_Error = c(SUBkNN_HH_50_LAT.LON_SAMPLE_TRUE,SUBkNN_HH_100_LAT.LON_SAMPLE_TRUE,
+#                                         SUBkNN_HH_200_LAT.LON_SAMPLE_TRUE)) %>% 
+#   mutate(Margin_Error = round(Margin_Error, 4))
+
+plot2com_draft_f <- data.frame(Approach=c("COMkNN_HH_50_LAT.LON_SAMPLE_TRUE_F","COMkNN_HH_100_LAT.LON_SAMPLE_TRUE_F",
+                                  "COMkNN_HH_200_LAT.LON_SAMPLE_TRUE_F"),
+                       Margin_Error = c(COMkNN_HH_50_LAT.LON_SAMPLE_TRUE_F,COMkNN_HH_100_LAT.LON_SAMPLE_TRUE_F,COMkNN_HH_200_LAT.LON_SAMPLE_TRUE_F)) %>% 
   mutate(Margin_Error = round(Margin_Error, 4))
 
+# plot3subforced <- data.frame(Approach=c("SUBkNN_HH_200_LAT.LON.HH_SAMPLE_TRUE","SUBkNN_HH_200_LAT.LON_MAX_TRUE",
+#                                "SUBkNN_HH_200_LAT.LON_SAMPLE_FALSE"),
+#                     Margin_Error = c(SUBkNN_HH_200_LAT.LON.HH_SAMPLE_TRUE,SUBkNN_HH_200_LAT.LON_MAX_TRUE,
+#                                      SUBkNN_HH_200_LAT.LON_SAMPLE_FALSE)) %>% 
+#   mutate(Margin_Error = round(Margin_Error, 4))
 
-plot2subforced <- data.frame(Approach=c("SUBkNN_HH_50_LAT.LON_SAMPLE_TRUE","SUBkNN_HH_100_LAT.LON_SAMPLE_TRUE",
-                                  "SUBkNN_HH_200_LAT.LON_SAMPLE_TRUE"),
-                       Margin_Error = c(SUBkNN_HH_50_LAT.LON_SAMPLE_TRUE,SUBkNN_HH_100_LAT.LON_SAMPLE_TRUE,
-                                        SUBkNN_HH_200_LAT.LON_SAMPLE_TRUE)) %>% 
+#Run here
+plot3com_draft_f <- data.frame(Approach=c("COMkNN_HH_50_LAT.LON.HH_SAMPLE_TRUE_F","COMkNN_HH_50_LAT.LON_MAX_TRUE_F",
+                                  "COMkNN_HH_50_LAT.LON_SAMPLE_FALSE_F"),
+                       Margin_Error = c(COMkNN_HH_50_LAT.LON.HH_SAMPLE_TRUE_F,COMkNN_HH_50_LAT.LON_MAX_TRUE_F,
+                                        COMkNN_HH_50_LAT.LON_SAMPLE_FALSE_F)) %>% 
   mutate(Margin_Error = round(Margin_Error, 4))
 
-plot2comforced <- data.frame(Approach=c("COMkNN_HH_50_LAT.LON_SAMPLE_TRUE","COMkNN_HH_100_LAT.LON_SAMPLE_TRUE",
-                                  "COMkNN_HH_200_LAT.LON_SAMPLE_TRUE"),
-                       Margin_Error = c(COMkNN_HH_50_LAT.LON_SAMPLE_TRUE,COMkNN_HH_100_LAT.LON_SAMPLE_TRUE,COMkNN_HH_200_LAT.LON_SAMPLE_TRUE)) %>% 
+# plot4subforced <- data.frame(Approach=c("SUBHOTDECK_HH_NULL_NULL","SUBHOTDECK_HH_NULL_DIS.ARRIVAL","SUBHOTDECK_HH_HH.ARRIVAL_DIS.ARRIVAL"),
+#                        Margin_Error = c(SUBHOTDECK_HH_NULL_NULL,SUBHOTDECK_HH_NULL_DIS.ARRIVAL,SUBHOTDECK_HH_HH.ARRIVAL_DIS.ARRIVAL)) %>% 
+#   mutate(Margin_Error = round(Margin_Error, 4))
+
+plot4com_draft_f <- data.frame(Approach=c("COMHOTDECK_HH_NULL_NULL_F","COMHOTDECK_HH_NULL_DIS.ARRIVAL_F",
+                                          "COMHOTDECK_HH_HH.ARRIVAL_DIS.ARRIVAL_F"), 
+                       Margin_Error = c(COMHOTDECK_HH_NULL_NULL_F,COMHOTDECK_HH_NULL_DIS.ARRIVAL_F
+                                        ,COMHOTDECK_HH_HH.ARRIVAL_DIS.ARRIVAL_F)) %>% 
   mutate(Margin_Error = round(Margin_Error, 4))
 
-plot3subforced <- data.frame(Approach=c("SUBkNN_HH_200_LAT.LON.HH_SAMPLE_TRUE","SUBkNN_HH_200_LAT.LON_MAX_TRUE",
-                               "SUBkNN_HH_200_LAT.LON_SAMPLE_FALSE"),
-                    Margin_Error = c(SUBkNN_HH_200_LAT.LON.HH_SAMPLE_TRUE,SUBkNN_HH_200_LAT.LON_MAX_TRUE,
-                                     SUBkNN_HH_200_LAT.LON_SAMPLE_FALSE)) %>% 
-  mutate(Margin_Error = round(Margin_Error, 4))
-
-plot3comforced <- data.frame(Approach=c("COMkNN_HH_200_LAT.LON.HH_SAMPLE_TRUE","COMkNN_HH_200_LAT.LON_MAX_TRUE",
-                                  "COMkNN_HH_200_LAT.LON_SAMPLE_FALSE"),
-                       Margin_Error = c(COMkNN_HH_200_LAT.LON.HH_SAMPLE_TRUE,COMkNN_HH_200_LAT.LON_MAX_TRUE,
-                                        COMkNN_HH_200_LAT.LON_SAMPLE_FALSE)) %>% 
-  mutate(Margin_Error = round(Margin_Error, 4))
-
-plot4subforced <- data.frame(Approach=c("SUBHOTDECK_HH_NULL_NULL","SUBHOTDECK_HH_NULL_DIS.ARRIVAL","SUBHOTDECK_HH_HH.ARRIVAL_DIS.ARRIVAL"),
-                       Margin_Error = c(SUBHOTDECK_HH_NULL_NULL,SUBHOTDECK_HH_NULL_DIS.ARRIVAL,SUBHOTDECK_HH_HH.ARRIVAL_DIS.ARRIVAL)) %>% 
-  mutate(Margin_Error = round(Margin_Error, 4))
-
-plot4comforced <- data.frame(Approach=c("COMHOTDECK_HH_NULL_NULL","COMHOTDECK_HH_NULL_DIS.ARRIVAL","COMHOTDECK_HH_HH.ARRIVAL_DIS.ARRIVAL"), 
-                       Margin_Error = c(COMHOTDECK_HH_NULL_NULL,COMHOTDECK_HH_NULL_DIS.ARRIVAL,COMHOTDECK_HH_HH.ARRIVAL_DIS.ARRIVAL)) %>% 
-  mutate(Margin_Error = round(Margin_Error, 4))
-
-write_xlsx(plot1subforced, "output/plot1subforced.xlsx")
-write_xlsx(plot1comforced, "output/plot1comforced.xlsx")
-write_xlsx(plot2subforced, "output/plot2subforced.xlsx")
-write_xlsx(plot2comforced, "output/plot2comforced.xlsx")
-write_xlsx(plot3subforced, "output/plot3subforced.xlsx")
-write_xlsx(plot3comforced, "output/plot3comforced.xlsx")
-write_xlsx(plot4subforced, "output/plot4subforced.xlsx")
-write_xlsx(plot4comforced, "output/plot4comforced.xlsx")
+# write_xlsx(plot1subforced, "output/plot1subforced.xlsx")
+write_xlsx(plot1com_draft_f, "output/plot1com_draft_f.xlsx")
+# write_xlsx(plot2subforced, "output/plot2subforced.xlsx")
+write_xlsx(plot2com_draft_f, "output/plot2com_draft_f.xlsx")
+# write_xlsx(plot3subforced, "output/plot3subforced.xlsx")
+write_xlsx(plot3com_draft_f, "output/plot3com_draft_f.xlsx")
+# write_xlsx(plot4subforced, "output/plot4subforced.xlsx")
+write_xlsx(plot4com_draft_f, "output/plot4com_draft_f.xlsx")
 ```
 
 
-```{r}
+```{r eval=FALSE, include=FALSE}
 library(sf)
 
 calc_neigh <- function(d){

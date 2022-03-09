@@ -1,40 +1,55 @@
 ---
-title: "Data Imputation using ISMI data"
+title: "Data Imputation using ISMI data (Draft version)"
+author: "Kindly do not use for external distribution and reporting."
 output: html_document
-runtime: shiny
 ---
 ## {.tabset}
 ### Introduction, Context & Reason
-<b><h4>Introduction:</h4></b>
-In this paper, we will be discussing multiple *data imputation* strategies. All the codes, outputs and methodologies are taken from a study done by a previous colleague, <b>Josh McCormick</b>. 
+<h4><b>Introduction:</b></h4>
+In this paper, we will be discussing multiple *data imputation* strategies. This work is inspired by an intial study conducted by <b>Josh McCormick</b>. 
 <br>
 This study started after we noticed some missing information in the <b>ISMI</b> (IDPs Situation Monitoring Initiative) research cycle. Especially, information on IDP arrivals number from <b>known</b> sub-districts. 
 <br>
 
-<b><h4>A bit of context:</h4></b>
-Over the last 5 months, slightly more than 90% of KIs know where new IDP arrivals recently came from (their place of origin).This pattern has been similar since the beginning of the project. <br>
+<h4><b> Bit of context:</b></h4>
+Over the last 5 months, slightly more than 90% of IDP arrivals were reported to have a known place of origin. This pattern has been similar since the beginning of the project. <br>
 
 ```{r echo=FALSE, message=FALSE, warning=FALSE}
 setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
 rm(list = ls())
 library(ggplot2)
 library(tidyverse)
-library(shiny)
 data <- readxl::read_xlsx("data/unknown_LPD.xlsx")
 data$Month <- factor(data$Month, levels = c("September-2021","October-2021","November-2021","December-2021","January-2022"))
 
 ggplot(data)+
   geom_bar(aes(x=Month, y=`Total # of IDP HH arrivals`),stat ="identity")+
+  geom_bar(aes(x=Month, y=`Max Cap # HH LPD`,fill = "#red"),stat="identity")+
   geom_bar(aes(x=Month, y=`Sum of # HH LPD`,fill = "#ee5859"),stat="identity")+
   geom_text(aes(x=Month, y=`Total # of IDP HH arrivals`,
-                label= paste0(round(100-(100*(`Sum of # HH LPD`/`Total # of IDP HH arrivals`)),2),"%"))
-            ,nudge_y=  60, stat = "identity")+
+                label= paste0(round(100-(100*(`Max Cap # HH LPD`/`Total # of IDP HH arrivals`)),2),"%"))
+            ,nudge_y=  100, stat = "identity")+
   geom_text(aes(x=Month, y=`Sum of # HH LPD`
                 ,label= paste0(round(100*(`Sum of # HH LPD`/`Total # of IDP HH arrivals`),2),"%")),
             nudge_y= - 100, stat = "identity")+
+  geom_text(aes(x=Month, y=`Sum of # HH LPD`
+                ,label= paste0(round(round((100-(100*(`Sum of # HH LPD`/`Total # of IDP HH arrivals`))),2)-round((100-(100*(`Max Cap # HH LPD`/`Total # of IDP HH arrivals`))),2),2),"%")),
+              nudge_y= 80, stat = "identity")+
   theme(legend.position = "none")
 ```
-<b><h4>Reason:</h4></b>
+
+<br><p style= "color: red;">*ISMI is collected on a bi-weekly basis, hence why the data used for the plot was only including the first half of January 2022*</p>
+The above plot shows the number of IDP arrivals per month. Because of the limitations in the tool (asking a maximum of three places of departures), we have to calculate the sum of arrivals from the three mentioned places of departures and compare it to the total number of arrival to the community. Sometimes, the sum is still less then total number and doesn't give a place for Enumerator to report on other places of departures (assuming that they know). The ditribution of the data in the plot shows: <br>
+<ul>
+<li>In red, the  number of IDP arrivals from known sub-districts</li>
+<li>In blue, the number of IDP arrivals with possibility of known sub-districts because of tool limitations.</li>
+<li>In grey, the number of IDP arrivals from unknown sub-districts</li>
+</ul>
+
+So as a conclusion, taking September 2021 as an example, the % of unknown sub-district of departure lie down somewhere between 2.54% and 7.76%.<br>
+
+
+<h4><b>Reason:</b></h4>
 
 The main reason we are doing this study is to fill the gap of unknown locations because this data is sent directly to CCCM, who use it for their monthly displacement tracking updates. However, they do not use the total number of IDP arrivals, they only look at the total IDP arrivals <b>from known sub-district only</b>. This might cause some people to assume the total number of arrivals is lower than is actually is, generating a false picture of displacement in the area of studies. <br>
 
@@ -42,11 +57,11 @@ The goal of this study is to try different algorithms of replacing the missing d
 
 ### Methodology
 
-<b><h4>Methodologies used:</h4></b>
+<h4><b>Methodologies used:</b></h4>
 
 Two strategies were used to study data imputations in this context, the Hot deck and the kNN imputations. <br>
 
-<b><h5>Hot deck:</h5></b>
+<h5><b>Hot deck:</b></h5>
 
 Hot deck imputation is a method for handling missing data in which each missing value is replaced with an observed response from a “similar” unit.
 Hot deck imputation involves replacing missing values of one or more variables for a non-respondent (called the recipient) with observed values from a respondent (the donor) that is similar to the non-respondent with respect to characteristics observed by both cases.
@@ -55,30 +70,30 @@ This theory is not as well developed as that of other imputation methods.<br>
 References:<br>
 [Hot Deck Methodology](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3130338/)
 
-<b><h5>kNN or k-Nearest Neighbours:</h5></b>
+<h5><b>kNN or k-Nearest Neighbours:</b></h5>
 
 kNN identifies the neighboring points through a measure of distance and the missing values can be estimated using completed values of neighbouring observations.
-In another word, it identify 'k' samples in the dataset that are similar or close in space, and this sample is used to estimate values of the missing data points using the mean value of the 'k'-neighbours dound in the dataset.<br>
+In another word, it identify 'k' samples in the dataset that are similar or close in space, and this sample is used to estimate values of the missing data points using the mean value of the 'k'-neighbours round in the dataset.<br>
 
 References:<br>
 [kNN Methodology](https://www.analyticsvidhya.com/blog/2020/07/knnimputer-a-robust-way-to-impute-missing-values-using-scikit-learn/#:~:text=The%20idea%20in%20kNN%20methods,neighbors%20found%20in%20the%20dataset.)
 
+<h4><b>Methods for inserting NAs:</b></h4>
+
 We also did used two methodologies to insert NAs in our ISMI dataset: <br>
-<ul><li> Randomized selection of NA values depending on the percentage of missing data from previous rounds</li>
-<li> Forced selection of NA values on .....(*Waiting for Sarah's Reply*)</li></ul>
+<ul>
+<li> Randomized selection of NA values depending on the percentage of missing data from previous rounds</li>
+<li> Forced selection of NA values depending on the geographical distribution of NAs for the same round</li>
+</ul>
 
-For the randomized selection of NA, we used a full dataset from ISMI (without NAs) and randomly generated NA entries in the *From Sub-district* field. Then we run the imputation simulation. We gave IDs for imputated data before the imputation and after, and we compared the result by calculating the absolute difference between the true data and the imputed household arrivals for each *From sub-district* and dividing it by the total number of household arrivals.<br><br>
-Multiple simulations were run using different parameters and variables. The result is comparing the accuracy each simulation by calculating the margin of error (%) before and after data imputation. <br>
-- In the Simulations tab, you will find two plots in each round of simulation. Each plot represent the level of aggregation on which the margin of error is calculated. The plots represent the aggregation on sub-district and community level respectively. <br><br>
-<b>For Data Unit:</b> VIM package from R was used for both Hot Deck and kNN simulations.
+For both, randomized and forced selection of NAs, we used a full dataset from ISMI (without NAs) and generated NAs entries in the *From Sub-district* field. We also gave unique IDs for each entry to separate the data that will be used for imputation studies in the simulations to calculate the error rate. We compared the result by calculating the wrong imputed number of household arrivals for each *movement entry* and dividing it by the total number of household arrivals of all imputed data.
 
+<h4><b>Simulations:</b></h4>
+Multiple simulations were run using different parameters and variables. <br>
+The next two tabs show the same simulations off impuations but using either randomized NAs or forced NAs. <br>
+- Each plot in both tabs represent different level of imputation on which the error rate is calculated (community and household levels). All the plots represent the aggregation of the data on community level. <br><br>
 
-
-### Simulations of Randomized NA
-
-As mentioned in the methodologies section, we used two different strategies to get to the best results. For each strategie, we ran different simulation and tweaked parameters to try compare different outcomes. Here is the results:<br>
-
-<b><h4>Some hints to understand reading labels:</h4></b>
+<h4><b>Some hints to understand reading labels in the:</b></h4>
 
 As there will be different simulations, using different methodologies, parameters, # of simulation, etc. I will be using a code for each simulation with different sections as following:<br>
 <h5>*STRAT_LVLIMP_ORD_DOM* --> for hot deck strategy</h5>
@@ -94,103 +109,84 @@ As there will be different simulations, using different methodologies, parameter
 *METH* = Methodology of sampling of NNs<br>
 *NOISE* = With or Without added random noises for ties<br>
 
-<br>
-<b><h4>Simulations on community level of imputation:</h4></b>
+Definitions:<br>
+*movement entry* = From Sub-district ---> To community displacement.
+<b>For Data Unit:</b> VIM package from R was used for both Hot Deck and kNN simulations.
+
+### Simulations of Randomized NA
+
+As mentioned in the methodologies section, we used two different strategies to get to the best results. For each strategie, we ran different simulation and tweaked parameters to try compare different outcomes. Here is the results:<br>
+
+<h4><b>Simulations on community level of imputation:</b></h4>
 
 4 approaches, result is the mean of 200 simulation for each approach.
 
 ```{r echo=FALSE, warning=FALSE}
 library(readxl)
-plot1sub <- read_excel("output/plot1sub.xlsx")
-ggplot(plot1sub, aes(x=Approach, y=Margin_Error, label = Margin_Error), width= 50)+
+plot1com_draft <- read_excel("output/plot1com_draft.xlsx")
+ggplot(plot1com_draft, aes(x=Approach, y=Margin_Error, label = Margin_Error), width= 50)+
   geom_col(fill = "#ee5859", width = 0.2,position = position_dodge(width=0.1), aes(ylab = Margin_Error)) +
   theme(axis.text.x = element_text(vjust = 0.5,angle = 25)) +
-  geom_text(nudge_y = 0.005)
-
-plot1com <- read_excel("output/plot1com.xlsx")
-ggplot(plot1com, aes(x=Approach, y=Margin_Error, label = Margin_Error), width= 50)+
-  geom_col(fill = "#ee5859", width = 0.2,position = position_dodge(width=0.1), aes(ylab = Margin_Error)) +
-  theme(axis.text.x = element_text(vjust = 0.5,angle = 25)) +
-  geom_text(nudge_y = 0.01)
+  geom_text(nudge_y = 0.03)
 ```
 <br>
-Looking at all approaches above, we can conclude that when we try data imputation on community level, with same number of simulations for all, the <b>hot deck imputation "to" districts as domains</b>, and <b> the kNN approach</b> were the best out of 4. The Hot Deck imputation with only one full domain was slighlty worse. However, when we tried to order our data by number of HH arrivals, this led to the far worse prediction. 
+Looking at community aggregation level above, we can conclude that with same number of simulations for all, the <b>hot deck imputation "to" districts as domains</b> ordered by number of IDP household of arrivals was the best out of 3.
 
-<br>
-<b><h4>Simulations on Household level of imputation:</h4></b>
+<h4><b>Simulations on Household level of imputation:</b></h4>
 <b>1. </b><br>
 3 approaches, results to test what best number of NNs for KNN strategy is best (50, 100, or 200)
 ```{r echo=FALSE, warning=FALSE}
-plot2sub <- read_excel("output/plot2sub.xlsx")
-ggplot(plot2sub, aes(x=Approach, y=Margin_Error, label = Margin_Error), width= 50)+
-  geom_col(fill = "#ee5859", width = 0.2,position = position_dodge(width=0.1), aes(ylab = Margin_Error)) +
-  theme(axis.text.x = element_text(vjust = 0.5,angle = 25)) +
-  geom_text(nudge_y = 0.005)
 
-plot2com <- read_excel("output/plot2com.xlsx")
-ggplot(plot2com, aes(x=Approach, y=Margin_Error, label = Margin_Error), width= 50)+
+plot2com_draft <- read_excel("output/plot2com_draft.xlsx")
+ggplot(plot2com_draft, aes(x=Approach, y=Margin_Error, label = Margin_Error), width= 50)+
   geom_col(fill = "#ee5859", width = 0.2,position = position_dodge(width=0.1), aes(ylab = Margin_Error)) +
   theme(axis.text.x = element_text(vjust = 0.5,angle = 25)) +
-  geom_text(nudge_y = 0.005)
+  geom_text(nudge_y = 0.03)
 ```
 
 <br>
-It seems that between the 3 approaches, 200 nearest neighbours was the most adequate. So, next simulation will be running on 200 as Number of NNs and other tweaking of few other variables. 
+For the 3 community approaches, 50 nearest neighbours was the most adequate. So, next simulation will be running on 50 as Number of NNs and other tweaking of few other variables. 
 <br>
 
 <b>2. </b><br>
 
-3 approaches, all kNN strategy, 200 NNs but different parameters
-
+3 approaches, all kNN strategy, 50 NNs but different parameters<br>
 ```{r echo=FALSE, warning=FALSE}
-plot3sub <- read_excel("output/plot3sub.xlsx")
-ggplot(plot3sub, aes(x=Approach, y=Margin_Error, label = Margin_Error), width= 50)+
-  geom_col(fill = "#ee5859", width = 0.2,position = position_dodge(width=0.1), aes(ylab = Margin_Error)) +
-  theme(axis.text.x = element_text(vjust = 0.5,angle = 25)) +
-  geom_text(nudge_y = 0.005)
 
-plot3com <- read_excel("output/plot3com.xlsx")
-ggplot(plot3com, aes(x=Approach, y=Margin_Error, label = Margin_Error), width= 50)+
+plot3com_draft <- read_excel("output/plot3com_draft.xlsx")
+ggplot(plot3com_draft, aes(x=Approach, y=Margin_Error, label = Margin_Error), width= 50)+
   geom_col(fill = "#ee5859", width = 0.2,position = position_dodge(width=0.1), aes(ylab = Margin_Error)) +
   theme(axis.text.x = element_text(vjust = 0.5,angle = 25)) +
-  geom_text(nudge_y = 0.005)
+  geom_text(nudge_y = 0.03)
 ```
 <br>
 After running these 3 simulation, we can conclude the following points:<br>
 <ul>
-<li>1st simulation, we added HH of arrival also to the distance variables (lat and lon). This change decreased slightly the accuracy of predictions</li>
-<li>2nd simulation, we set up the aggregation of the NNs to max category instead of a proportional sampling. The result gave a significant worse result.</li>
+<li>1st simulation, we added HH of arrival also to the distance variables (lat and lon). This change increased slightly the accuracy of predictions</li>
+<li>2nd simulation, we set up the aggregation of the NNs to max category instead of a proportional sampling. The result gave almost same result as before.</li>
 <li>3rd simulation, we removed the random noise generated which broke some ties and the result is also slightly worse.</li>
 </ul>
-<br>
 
 <b>3. </b><br>
 
 3 approaches, all Hot Deck strategy with different order and domain parameters. 
 
 ```{r echo=FALSE, warning=FALSE}
-plot4sub <- read_excel("output/plot4sub.xlsx")
-ggplot(plot4sub, aes(x=Approach, y=Margin_Error, label = Margin_Error), width= 50)+
-  geom_col(fill = "#ee5859", width = 0.2,position = position_dodge(width=0.1), aes(ylab = Margin_Error)) +
-  theme(axis.text.x = element_text(vjust = 0.5,angle = 25)) +
-  geom_text(nudge_y = 0.005)
 
-plot4com <- read_excel("output/plot4com.xlsx")
-ggplot(plot4com, aes(x=Approach, y=Margin_Error, label = Margin_Error), width= 50)+
+plot4com_draft <- read_excel("output/plot4com_draft.xlsx")
+ggplot(plot4com_draft, aes(x=Approach, y=Margin_Error, label = Margin_Error), width= 50)+
   geom_col(fill = "#ee5859", width = 0.2,position = position_dodge(width=0.1), aes(ylab = Margin_Error)) +
   theme(axis.text.x = element_text(vjust = 0.5,angle = 25)) +
-  geom_text(nudge_y = 0.005)
+  geom_text(nudge_y = 0.03)
 ```
 <br>
-Comparing this graph, with the first generated one, we can conclude that the same pattern was drawn. All results was similar to the same results run with the Hot Deck strategy using community level of imputation but with slight better results. <br>
+Comparing this graph, with the first one generated, we can conclude that the same pattern was drawn. All results was similar to the same results run with the Hot Deck strategy using community level of imputation but with slight better results. <br>
 
 ### Simulations of Forced NA
 
 <h4>Map showing communities reporting NA for sub-district of departure in December 2020</h4>
 
 We also checked the geographical distribution of communities reporting *unknown* as Sub-district of departure. It is clear from the below map that the distribution is not random. <br>
-
-
 
 ```{r echo=FALSE, message=FALSE, warning=FALSE}
 library(leaflet)
@@ -259,46 +255,8 @@ gps_na_dec2020 <- gps_na_dec2020 %>%
          `Subdistrict of last departure 3` = ifelse(clean == T & (`Number of IDP HH arrivals` - (`Number of IDP HHs arrived from subdistrict 1` + `Number of IDP HHs arrived from subdistrict 2`)) == 1, "To Remove", `Subdistrict of last departure 3`),
          percentage = ifelse(clean == T,100*( 1 - ((`Number of IDP HHs arrived from subdistrict 1` + `Number of IDP HHs arrived from subdistrict 2` + `Number of IDP HHs arrived from subdistrict 3`) / `Number of IDP HH arrivals`)),0))
 
-
-# from_To.cleaned <- gps_na_dec2020 %>% 
-#   filter(clean == T) %>% 
-#   gather(col, value, From_Sub:`Number of IDP HHs arrived from subdistrict 3`) %>% 
-#   mutate(col = ifelse(col == "Subdistrict of last departure 2", "From_Sub",
-#                       ifelse(col == "Subdistrict of last departure 3","From_Sub",
-#                              ifelse(col=="Number of IDP HHs arrived from subdistrict 1", "HH_arrival",
-#                                     ifelse(col=="Number of IDP HHs arrived from subdistrict 2", "HH_arrival",
-#                                            ifelse(col=="Number of IDP HHs arrived from subdistrict 3", "HH_arrival",col)))))) %>% 
-#   pivot_wider(names_from = col,
-#               values_from = value) %>%  unnest() %>% 
-#   select(From_Sub, To_Com, HH_arrival) %>% 
-#   filter(From_Sub == "Not sure") %>% 
-#   group_by(To_Com) %>% 
-#   summarise(Sub_NA = n())
-# 
-# from_To.known <- gps_na_dec2020 %>% 
-#   gather(col, value, From_Sub:`Number of IDP HHs arrived from subdistrict 3`) %>% 
-#   mutate(col = ifelse(col == "Subdistrict of last departure 2", "From_Sub",
-#                       ifelse(col == "Subdistrict of last departure 3","From_Sub",
-#                              ifelse(col=="Number of IDP HHs arrived from subdistrict 1", "HH_arrival",
-#                                     ifelse(col=="Number of IDP HHs arrived from subdistrict 2", "HH_arrival",
-#                                            ifelse(col=="Number of IDP HHs arrived from subdistrict 3", "HH_arrival",col)))))) %>% 
-#   pivot_wider(names_from = col,
-#               values_from = value) %>%  unnest() %>% 
-#   select(From_Sub, To_Com, HH_arrival) %>% 
-#   filter(From_Sub != "Not sure" & From_Sub != "To Remove") %>% 
-#   group_by(To_Com) %>% 
-#   summarise(Sub_known = n()) 
-
-
-# from_To.cleaned.sf <- st_as_sf(x = from_To.cleaned, coords = c("long", "lat"), crs = 4326)
-# gps_known.sf <- st_as_sf(x = gps_known, coords = c("long", "lat"), crs = 4326)
-
 unknown_com <- gps_na_dec2020 %>% 
-<<<<<<< HEAD
   select(To_Com,percentage, enumID) %>% 
-=======
-  select(To_Com,percentage,enumID) %>% 
->>>>>>> 7be1f48a23ce4b0ff7b33cdc8ee9a8285425ce5e
   filter(percentage != 0) %>% 
   left_join(locations, by = "To_Com")
 
@@ -316,70 +274,41 @@ known_com.sf <- st_as_sf(x = known_com, coords = c("long", "lat"), crs = 4326)
 leaflet() %>%
   addCircles(data = known_com.sf, stroke = F, fill= T, color = "black", fillOpacity = 0.75,
              radius = 500) %>% 
-<<<<<<< HEAD
-  addCircles(data = unknown_com.sf, stroke = F, fill= T, color = "#ee5859", label = unknown_com.sf$enumID, labelOptions = labelOptions(noHide = T) , fillOpacity = 0.75,
-             radius = unknown_com.sf$percentage * 25) %>% 
-=======
-  addCircles(data = unknown_com.sf, stroke = F, fill= T, color = "#ee5859",label = unknown_com.sf$enumID, labelOptions = labelOptions(noHide = T), fillOpacity = 0.75,
+  addCircles(data = unknown_com.sf, stroke = F, fill= T, color = "#ee5859",
+             # label = unknown_com.sf$enumID, labelOptions = labelOptions(noHide = T),
+             fillOpacity = 0.75,
              radius = unknown_com.sf$percentage * 25) %>%
->>>>>>> 7be1f48a23ce4b0ff7b33cdc8ee9a8285425ce5e
   addProviderTiles("OpenStreetMap.Mapnik")
 ```
-<!-- <h4>Trend of communities choosing NAs as Sub-district of Departure by month</h4> -->
 
 <h4>Forced NA data imputation simulation</h4>
-Looking at the map above, we forced NA entries in the *From Sub-district* field to 4 sub-districts of Arrivals were NA are distributed (Dana, Daret Azza, Jandairis, and Raju). Below is the same outputs from the previous simulations on both Sub-district and Community aggregation levels. 
+Looking at the map above, we forced NA entries in the *From Sub-district* field to 4 sub-districts of Arrivals were NA are distributed (Dana, Daret Azza, Jandairis, and Raju). Below is the same outputs from the previous simulations on community aggregation levels. 
 
 ```{r echo=FALSE, message=FALSE, warning=FALSE}
-plot1subforced <- read_excel("output/plot1subforced.xlsx")
-ggplot(plot1subforced, aes(x=Approach, y=Margin_Error, label = Margin_Error), width= 50)+
+plot1com_draft_F <- read_excel("output/plot1com_draft_F.xlsx")
+ggplot(plot1com_draft_F, aes(x=Approach, y=Margin_Error, label = Margin_Error), width= 50)+
   geom_col(fill = "#ee5859", width = 0.2,position = position_dodge(width=0.1), aes(ylab = Margin_Error)) +
   theme(axis.text.x = element_text(vjust = 0.5,angle = 25)) +
-  geom_text(nudge_y = 0.01)
+  geom_text(nudge_y = 0.03)
 
-plot1comforced <- read_excel("output/plot1comforced.xlsx")
-ggplot(plot1comforced, aes(x=Approach, y=Margin_Error, label = Margin_Error), width= 50)+
+plot2com_draft_F <- read_excel("output/plot2com_draft_F.xlsx")
+ggplot(plot2com_draft_F, aes(x=Approach, y=Margin_Error, label = Margin_Error), width= 50)+
   geom_col(fill = "#ee5859", width = 0.2,position = position_dodge(width=0.1), aes(ylab = Margin_Error)) +
   theme(axis.text.x = element_text(vjust = 0.5,angle = 25)) +
-  geom_text(nudge_y = 0.01)
+  geom_text(nudge_y = 0.03)
 
-plot2subforced <- read_excel("output/plot2subforced.xlsx")
-ggplot(plot2subforced, aes(x=Approach, y=Margin_Error, label = Margin_Error), width= 50)+
+plot3com_draft_F <- read_excel("output/plot3com_draft_F.xlsx")
+ggplot(plot3com_draft_F, aes(x=Approach, y=Margin_Error, label = Margin_Error), width= 50)+
   geom_col(fill = "#ee5859", width = 0.2,position = position_dodge(width=0.1), aes(ylab = Margin_Error)) +
   theme(axis.text.x = element_text(vjust = 0.5,angle = 25)) +
-  geom_text(nudge_y = 0.01)
+  geom_text(nudge_y = 0.03)
 
-plot2comforced <- read_excel("output/plot2comforced.xlsx")
-ggplot(plot2comforced, aes(x=Approach, y=Margin_Error, label = Margin_Error), width= 50)+
+plot4com_draft_F <- read_excel("output/plot4com_draft_F.xlsx")
+ggplot(plot4com_draft_F, aes(x=Approach, y=Margin_Error, label = Margin_Error), width= 50)+
   geom_col(fill = "#ee5859", width = 0.2,position = position_dodge(width=0.1), aes(ylab = Margin_Error)) +
   theme(axis.text.x = element_text(vjust = 0.5,angle = 25)) +
-  geom_text(nudge_y = 0.01)
-
-plot3subforced <- read_excel("output/plot3subforced.xlsx")
-ggplot(plot3subforced, aes(x=Approach, y=Margin_Error, label = Margin_Error), width= 50)+
-  geom_col(fill = "#ee5859", width = 0.2,position = position_dodge(width=0.1), aes(ylab = Margin_Error)) +
-  theme(axis.text.x = element_text(vjust = 0.5,angle = 25)) +
-  geom_text(nudge_y = 0.01)
-
-plot3comforced <- read_excel("output/plot3comforced.xlsx")
-ggplot(plot3comforced, aes(x=Approach, y=Margin_Error, label = Margin_Error), width= 50)+
-  geom_col(fill = "#ee5859", width = 0.2,position = position_dodge(width=0.1), aes(ylab = Margin_Error)) +
-  theme(axis.text.x = element_text(vjust = 0.5,angle = 25)) +
-  geom_text(nudge_y = 0.01)
-
-plot4subforced <- read_excel("output/plot4subforced.xlsx")
-ggplot(plot4subforced, aes(x=Approach, y=Margin_Error, label = Margin_Error), width= 50)+
-  geom_col(fill = "#ee5859", width = 0.2,position = position_dodge(width=0.1), aes(ylab = Margin_Error)) +
-  theme(axis.text.x = element_text(vjust = 0.5,angle = 25)) +
-  geom_text(nudge_y = 0.01)
-
-plot4comforced <- read_excel("output/plot4comforced.xlsx")
-ggplot(plot4comforced, aes(x=Approach, y=Margin_Error, label = Margin_Error), width= 50)+
-  geom_col(fill = "#ee5859", width = 0.2,position = position_dodge(width=0.1), aes(ylab = Margin_Error)) +
-  theme(axis.text.x = element_text(vjust = 0.5,angle = 25)) +
-  geom_text(nudge_y = 0.01)
+  geom_text(nudge_y = 0.03)
 ```
-
  
 ```{r eval=FALSE, message=FALSE, warning=FALSE, include=FALSE}
 inputPanel(
@@ -388,6 +317,7 @@ inputPanel(
 ```
 
 ```{r eval=FALSE, message=FALSE, warning=FALSE, include=FALSE}
+library(leaflet)
 filteredData <- reactive({
   req(input$date)
   data[data$`Start of data coverage peirod` == input$date,]
@@ -410,7 +340,7 @@ monthly_data <- monthly_data %>%
          percentage = ifelse(clean == T,100*( 1 - ((`Number of IDP HHs arrived from subdistrict 1` + `Number of IDP HHs arrived from subdistrict 2` + `Number of IDP HHs arrived from subdistrict 3`) / `Number of IDP HH arrivals`)),0))
 
   unknown_com <- monthly_data %>% 
-    select(To_Com,percentage) %>% 
+    select(To_Com,percentage, enumID) %>% 
     filter(percentage != 0) %>% 
     left_join(locations, by = "To_Com")
   
@@ -424,7 +354,8 @@ monthly_data <- monthly_data %>%
    leaflet(options = leafletOptions(zoomControl = FALSE)) %>%  
       addCircles(data = known_com.sf, stroke = F, fill= T, color = "black", fillOpacity = 0.75,
                  radius = 500) %>% 
-      addCircles(data = unknown_com.sf, stroke = F, fill= T, color = "#ee5859", fillOpacity = 0.75,
+      addCircles(data = unknown_com.sf, stroke = F, fill= T, color = "#ee5859",label = unknown_com.sf$enumID, 
+                 labelOptions = labelOptions(noHide = T), fillOpacity = 0.75,
              radius = unknown_com.sf$percentage * 30) %>%
       addProviderTiles("OpenStreetMap.Mapnik")
   }) 
@@ -436,27 +367,14 @@ leafletOutput("map", width = "100%",height = "700px")
 
 
 
-
 ### Conclusion
 
 <b><h4>Conclusion:</h4></b>
-<ul>
-<li>Imputing on HH level output better results that imputing on community level</li>
-<li>kNN produces better results than the Hot Deck imputation strategy but only nominally; Taking 200 NNs was better then 100 or 50 NNs, but this added a lot of burden on the computation.</li>
-<li>Adding variables to the distance variables for kNN or changing the order of variables for Hot Deck was not better</li>
-<li>Adding random noise helped adding ties between neighbors</li>
-<li>Unknown sub-district of departure were reported randomly on a geographical distribution which makes our case more realistic</li>
-</ul>
-On the whole, most of the different approaches yielded more or less similar results.<br>
-<b>Worst simulation</b> was the Hot Deck, community level, ordered by number of HH arrivals and using the domain of the district of arrival. <br>
-<b>Best simulation</b> was the kNN, HH level, 200 NNs sampled proportionately with random noise added.<br> 
 
-Next steps:<br>
-- Check with Sarah to see if there is data we can add En Id to the raw data or the whole data to check data quality
-- Check with Enumerators of the reason of having unknown sub-districts and maybe we can draw another pattern
-- Calculate Error Rate to Community level depending on the data submitted to the partners
-- No randomness in Geographical NAs (Not sure how the kNN strategy will behave in actual NAs)
-- loss of coverage cannot be useful to the imputation 
+Taking into consideration the previous results: <br>
+Bother Hot Deck and kNN are not applicaple for this case because the results with high error rate is not a good sign. *UNTIL PROVEN WRONG*. <br>
+Looking at other imputation methodologies.
+
 
 
 
