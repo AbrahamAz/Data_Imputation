@@ -8,7 +8,7 @@ output: html_document
 <h4><b>Introduction:</b></h4>
 In this paper, we will be discussing multiple *data imputation* strategies. This work is inspired by an intial study conducted by <b>Josh McCormick</b>. 
 <br>
-This study started after we noticed some missing information in the <b>ISMI</b> (IDPs Situation Monitoring Initiative) research cycle. Especially, information on IDP arrivals number from <b>known</b> sub-districts. 
+This study started after we noticed some missing information in the <b>ISMI</b> (IDPs Situation Monitoring Initiative) research cycle. Especially, information on IDP arrivals numbers from <b>known</b> sub-districts. 
 <br>
 
 <h4><b> Bit of context:</b></h4>
@@ -42,7 +42,7 @@ ggplot(data)+
 The above plot shows the number of IDP arrivals per month. Because of the limitations in the tool (asking a maximum of three places of departures), we have to calculate the sum of arrivals from the three mentioned places of departures and compare it to the total number of arrival to the community. Sometimes, the sum is still less then total number and doesn't give a place for Enumerator to report on other places of departures (assuming that they know). The ditribution of the data in the plot shows: <br>
 <ul>
 <li>In red, the  number of IDP arrivals from known sub-districts</li>
-<li>In blue, the number of IDP arrivals with possibility of known sub-districts because of tool limitations.</li>
+<li>In blue, the number of IDP arrivals with possibility of known sub-districts because of tool limitations</li>
 <li>In grey, the number of IDP arrivals from unknown sub-districts</li>
 </ul>
 
@@ -80,20 +80,24 @@ References:<br>
 
 <h4><b>Methods for inserting NAs:</b></h4>
 
-We also did used two methodologies to insert NAs in our ISMI dataset: <br>
+We also did use two methodologies to insert NAs in our ISMI dataset: <br>
 <ul>
 <li> Randomized selection of NA values depending on the percentage of missing data from previous rounds</li>
 <li> Forced selection of NA values depending on the geographical distribution of NAs for the same round</li>
 </ul>
 
-For both, randomized and forced selection of NAs, we used a full dataset from ISMI (without NAs) and generated NAs entries in the *From Sub-district* field. We also gave unique IDs for each entry to separate the data that will be used for imputation studies in the simulations to calculate the error rate. We compared the result by calculating the wrong imputed number of household arrivals for each *movement entry* and dividing it by the total number of household arrivals of all imputed data.
+For both, randomized and forced selection of NAs, we used a full dataset from ISMI (without NAs) and generated NAs entries in the *From Sub-district* field. 
+
+<h4><b>Error rate:</b></h4>
+For each *movement entry* *, we gave unique IDs to be able to recognize the data that was used for the imputation. Taking only the data that was imputed, we calculated the error rate by dividing the total number of HH of arrivals that resulted with a wrong imputation by the total number of HH of arrivals that was imputed.
+
 
 <h4><b>Simulations:</b></h4>
 Multiple simulations were run using different parameters and variables. <br>
-The next two tabs show the same simulations off impuations but using either randomized NAs or forced NAs. <br>
-- Each plot in both tabs represent different level of imputation on which the error rate is calculated (community and household levels). All the plots represent the aggregation of the data on community level. <br><br>
+The next two tabs show the same simulations off impuations but using either randomized NAs or forced NAs.<br>
+Each plot in both tabs represent different level of imputation on which the error rate is calculated (community and household levels). All the plots represent the aggregation of the data on community level. <br>
 
-<h4><b>Some hints to understand reading labels in the:</b></h4>
+<h4><b>*Some hints to understand reading labels in the:* </b></h4>
 
 As there will be different simulations, using different methodologies, parameters, # of simulation, etc. I will be using a code for each simulation with different sections as following:<br>
 <h5>*STRAT_LVLIMP_ORD_DOM* --> for hot deck strategy</h5>
@@ -109,7 +113,7 @@ As there will be different simulations, using different methodologies, parameter
 *METH* = Methodology of sampling of NNs<br>
 *NOISE* = With or Without added random noises for ties<br>
 
-Definitions:<br>
+* Definitions:<br>
 *movement entry* = From Sub-district ---> To community displacement.
 <b>For Data Unit:</b> VIM package from R was used for both Hot Deck and kNN simulations.
 
@@ -123,9 +127,10 @@ As mentioned in the methodologies section, we used two different strategies to g
 
 ```{r echo=FALSE, warning=FALSE}
 library(readxl)
-plot1com_draft <- read_excel("output/plot1com_draft.xlsx")
-ggplot(plot1com_draft, aes(x=Approach, y=Margin_Error, label = Margin_Error), width= 50)+
-  geom_col(fill = "#ee5859", width = 0.2,position = position_dodge(width=0.1), aes(ylab = Margin_Error)) +
+plot1com_draft <- read_excel("output/plot1com_draft.xlsx") %>% 
+  rename("Error rate" = Margin_Error)
+ggplot(plot1com_draft, aes(x=Approach, y=`Error rate`, label = `Error rate`), width= 50)+
+  geom_col(fill = "#ee5859", width = 0.2,position = position_dodge(width=0.1), aes(ylab = `Error rate`)) +
   theme(axis.text.x = element_text(vjust = 0.5,angle = 25)) +
   geom_text(nudge_y = 0.03)
 ```
@@ -137,9 +142,10 @@ Looking at community aggregation level above, we can conclude that with same num
 3 approaches, results to test what best number of NNs for KNN strategy is best (50, 100, or 200)
 ```{r echo=FALSE, warning=FALSE}
 
-plot2com_draft <- read_excel("output/plot2com_draft.xlsx")
-ggplot(plot2com_draft, aes(x=Approach, y=Margin_Error, label = Margin_Error), width= 50)+
-  geom_col(fill = "#ee5859", width = 0.2,position = position_dodge(width=0.1), aes(ylab = Margin_Error)) +
+plot2com_draft <- read_excel("output/plot2com_draft.xlsx") %>% 
+  rename("Error rate" = Margin_Error)
+ggplot(plot2com_draft, aes(x=Approach, y=`Error rate`, label = `Error rate`), width= 50)+
+  geom_col(fill = "#ee5859", width = 0.2,position = position_dodge(width=0.1), aes(ylab = `Error rate`)) +
   theme(axis.text.x = element_text(vjust = 0.5,angle = 25)) +
   geom_text(nudge_y = 0.03)
 ```
@@ -153,9 +159,10 @@ For the 3 community approaches, 50 nearest neighbours was the most adequate. So,
 3 approaches, all kNN strategy, 50 NNs but different parameters<br>
 ```{r echo=FALSE, warning=FALSE}
 
-plot3com_draft <- read_excel("output/plot3com_draft.xlsx")
-ggplot(plot3com_draft, aes(x=Approach, y=Margin_Error, label = Margin_Error), width= 50)+
-  geom_col(fill = "#ee5859", width = 0.2,position = position_dodge(width=0.1), aes(ylab = Margin_Error)) +
+plot3com_draft <- read_excel("output/plot3com_draft.xlsx") %>% 
+  rename("Error rate" = Margin_Error)
+ggplot(plot3com_draft, aes(x=Approach, y=`Error rate`, label = `Error rate`), width= 50)+
+  geom_col(fill = "#ee5859", width = 0.2,position = position_dodge(width=0.1), aes(ylab = `Error rate`)) +
   theme(axis.text.x = element_text(vjust = 0.5,angle = 25)) +
   geom_text(nudge_y = 0.03)
 ```
@@ -173,9 +180,10 @@ After running these 3 simulation, we can conclude the following points:<br>
 
 ```{r echo=FALSE, warning=FALSE}
 
-plot4com_draft <- read_excel("output/plot4com_draft.xlsx")
-ggplot(plot4com_draft, aes(x=Approach, y=Margin_Error, label = Margin_Error), width= 50)+
-  geom_col(fill = "#ee5859", width = 0.2,position = position_dodge(width=0.1), aes(ylab = Margin_Error)) +
+plot4com_draft <- read_excel("output/plot4com_draft.xlsx") %>% 
+  rename("Error rate" = Margin_Error)
+ggplot(plot4com_draft, aes(x=Approach, y=`Error rate`, label = `Error rate`), width= 50)+
+  geom_col(fill = "#ee5859", width = 0.2,position = position_dodge(width=0.1), aes(ylab = `Error rate`)) +
   theme(axis.text.x = element_text(vjust = 0.5,angle = 25)) +
   geom_text(nudge_y = 0.03)
 ```
@@ -275,7 +283,6 @@ leaflet() %>%
   addCircles(data = known_com.sf, stroke = F, fill= T, color = "black", fillOpacity = 0.75,
              radius = 500) %>% 
   addCircles(data = unknown_com.sf, stroke = F, fill= T, color = "#ee5859",
-             # label = unknown_com.sf$enumID, labelOptions = labelOptions(noHide = T),
              fillOpacity = 0.75,
              radius = unknown_com.sf$percentage * 25) %>%
   addProviderTiles("OpenStreetMap.Mapnik")
@@ -285,27 +292,31 @@ leaflet() %>%
 Looking at the map above, we forced NA entries in the *From Sub-district* field to 4 sub-districts of Arrivals were NA are distributed (Dana, Daret Azza, Jandairis, and Raju). Below is the same outputs from the previous simulations on community aggregation levels. 
 
 ```{r echo=FALSE, message=FALSE, warning=FALSE}
-plot1com_draft_F <- read_excel("output/plot1com_draft_F.xlsx")
-ggplot(plot1com_draft_F, aes(x=Approach, y=Margin_Error, label = Margin_Error), width= 50)+
-  geom_col(fill = "#ee5859", width = 0.2,position = position_dodge(width=0.1), aes(ylab = Margin_Error)) +
+plot1com_draft_F <- read_excel("output/plot1com_draft_F.xlsx") %>% 
+  rename("Error rate" = Margin_Error)
+ggplot(plot1com_draft_F, aes(x=Approach, y=`Error rate`, label = `Error rate`), width= 50)+
+  geom_col(fill = "#ee5859", width = 0.2,position = position_dodge(width=0.1), aes(ylab = `Error rate`)) +
   theme(axis.text.x = element_text(vjust = 0.5,angle = 25)) +
   geom_text(nudge_y = 0.03)
 
-plot2com_draft_F <- read_excel("output/plot2com_draft_F.xlsx")
-ggplot(plot2com_draft_F, aes(x=Approach, y=Margin_Error, label = Margin_Error), width= 50)+
-  geom_col(fill = "#ee5859", width = 0.2,position = position_dodge(width=0.1), aes(ylab = Margin_Error)) +
+plot2com_draft_F <- read_excel("output/plot2com_draft_F.xlsx") %>% 
+  rename("Error rate" = Margin_Error)
+ggplot(plot2com_draft_F, aes(x=Approach, y=`Error rate`, label = `Error rate`), width= 50)+
+  geom_col(fill = "#ee5859", width = 0.2,position = position_dodge(width=0.1), aes(ylab = `Error rate`)) +
   theme(axis.text.x = element_text(vjust = 0.5,angle = 25)) +
   geom_text(nudge_y = 0.03)
 
-plot3com_draft_F <- read_excel("output/plot3com_draft_F.xlsx")
-ggplot(plot3com_draft_F, aes(x=Approach, y=Margin_Error, label = Margin_Error), width= 50)+
-  geom_col(fill = "#ee5859", width = 0.2,position = position_dodge(width=0.1), aes(ylab = Margin_Error)) +
+plot3com_draft_F <- read_excel("output/plot3com_draft_F.xlsx") %>% 
+  rename("Error rate" = Margin_Error)
+ggplot(plot3com_draft_F, aes(x=Approach, y=`Error rate`, label = `Error rate`), width= 50)+
+  geom_col(fill = "#ee5859", width = 0.2,position = position_dodge(width=0.1), aes(ylab = `Error rate`)) +
   theme(axis.text.x = element_text(vjust = 0.5,angle = 25)) +
   geom_text(nudge_y = 0.03)
 
-plot4com_draft_F <- read_excel("output/plot4com_draft_F.xlsx")
-ggplot(plot4com_draft_F, aes(x=Approach, y=Margin_Error, label = Margin_Error), width= 50)+
-  geom_col(fill = "#ee5859", width = 0.2,position = position_dodge(width=0.1), aes(ylab = Margin_Error)) +
+plot4com_draft_F <- read_excel("output/plot4com_draft_F.xlsx") %>% 
+  rename("Error rate" = Margin_Error)
+ggplot(plot4com_draft_F, aes(x=Approach, y=`Error rate`, label = `Error rate`), width= 50)+
+  geom_col(fill = "#ee5859", width = 0.2,position = position_dodge(width=0.1), aes(ylab = `Error rate`)) +
   theme(axis.text.x = element_text(vjust = 0.5,angle = 25)) +
   geom_text(nudge_y = 0.03)
 ```
@@ -367,14 +378,16 @@ leafletOutput("map", width = "100%",height = "700px")
 
 
 
-### Conclusion
+### Reflection
 
-<b><h4>Conclusion:</h4></b>
+<b><h4>Reflection:</h4></b>
 
-Taking into consideration the previous results: <br>
-Bother Hot Deck and kNN are not applicaple for this case because the results with high error rate is not a good sign. *UNTIL PROVEN WRONG*. <br>
-Looking at other imputation methodologies.
-
+<ul>
+<li>Setting up of NAs should replicate the most realistic scenarios that might occur.</li>
+<li>Trying to figure out how the kNN is calculating the distances of closest neighboring communities and find out how the distribution of samples are taken.</li>
+<li>Follow up for number 2, check the distribution of Sub-districts of departures for the closest communities using the Euclidean metric and see if it is aligning with the kNN distribution.</li>
+<li>Following up with C&D Unit (Sarah Vassalo) to try to fix tool limitations.</li>
+</ul>
 
 
 
